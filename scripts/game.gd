@@ -54,6 +54,7 @@ var hurt_timer = 0.0
 var elapsed = 0.0
 var spawn_timer = 0.0
 var spawn_queue: Array = []
+var spawn_reserve: Dictionary = {}
 var enemies: Dictionary = {}
 var projectiles: Array = []
 var drops: Array = []
@@ -69,6 +70,7 @@ var defeat_reason = ""
 var kill_streak = 0
 var kill_timer = 0.0
 var simulation_ms = 0.0
+var simulation_phases: Dictionary = {}
 var hazard_timer = 0.0
 var active_cap = 100
 var autoplay = false
@@ -78,6 +80,11 @@ var benchmark_stats: Array = []
 var benchmark_duration = 180.0
 var benchmark_content = false
 var benchmark_stress = false
+var benchmark_horde = 0
+var benchmark_frame_bins: Dictionary = {}
+var benchmark_frames = 0
+var benchmark_frame_seconds = 0.0
+var benchmark_worst_frame = 0.0
 var benchmark_weapon = ""
 var peak_simulation_ms = 0.0
 var pending_map: Dictionary = {}
@@ -121,6 +128,9 @@ func _ready() -> void:
 	benchmark_content = "--benchmark-content" in OS.get_cmdline_user_args()
 	benchmark_stress = "--benchmark-stress" in OS.get_cmdline_user_args()
 	for argument in OS.get_cmdline_user_args():
+		if argument.begins_with("--benchmark-horde="):
+			benchmark_horde = clampi(int(argument.trim_prefix("--benchmark-horde=")), 1, 1000000000000)
+			benchmark_stress = true
 		if argument.begins_with("--benchmark-duration="):
 			benchmark_duration = clampf(float(argument.trim_prefix("--benchmark-duration=")), 10, 3600)
 	if "--benchmark" in OS.get_cmdline_user_args() or benchmark_content or benchmark_stress:
@@ -314,7 +324,7 @@ func start_run(run_mode: String = "endless", custom: Dictionary = {}, restoring:
 	state = "preparation"
 	ui.close_overlay()
 	ui.notify("Preparation — build defenses [%s], then begin wave [%s]." % [ui.key_name("planning"), ui.key_name("next_wave")])
-	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE if autoplay else Input.MOUSE_MODE_CAPTURED
 
 func clear_run() -> void:
 	for enemy in enemies.values():
@@ -330,6 +340,7 @@ func clear_run() -> void:
 			drop.mesh.queue_free()
 	drops.clear()
 	spawn_queue.clear()
+	spawn_reserve.clear()
 	backpack.clear()
 	if is_instance_valid(player):
 		remove_child(player)
@@ -790,6 +801,38 @@ func replace_structure(key: String, id: String) -> String:
 		scrap -= refund
 	return result
 
+func queued_enemies() -> int:
+	var total = spawn_queue.size()
+	for count in spawn_reserve.values(): total += int(count)
+	return total
+
+func reserve_budget(budget: float, pool: Array) -> void:
+	if budget < 7 or pool.is_empty(): return
+	var weights: Dictionary = {}
+	var cost = 0.0
+	for id in pool:
+		weights[id] = int(weights.get(id, 0)) + 1
+		cost += float(catalog.enemies[id].cost)
+	var population = int(floor(budget / (cost / pool.size())))
+	for id in weights:
+		var count = int(floor(float(population) * weights[id] / pool.size()))
+		if count > 0: spawn_reserve[id] = count
+
+func refill_spawns() -> void:
+	if not spawn_queue.is_empty(): return
+	var remaining = queued_enemies()
+	for i in mini(64, remaining):
+		var roll = int(minf(float(remaining - 1), rng.randf() * remaining))
+		for id in spawn_reserve:
+			var count = int(spawn_reserve[id])
+			if roll < count:
+				spawn_queue.append(id)
+				spawn_reserve[id] = count - 1
+				remaining -= 1
+				break
+			roll -= count
+	if remaining == 0: spawn_reserve.clear()
+
 func start_wave() -> bool:
 	if state != "preparation" or reward_pending:
 		return false
@@ -798,11 +841,11 @@ func start_wave() -> bool:
 	stats.wave = wave
 	state = "wave"
 	ui.close_overlay()
-	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE if autoplay else Input.MOUSE_MODE_CAPTURED
 	spawn_queue.clear()
-	var budget = minf(12000, 28 + wave * 16 + pow(minf(wave, 5000), 1.15) * 2)
-	budget = minf(12000, budget * world.rule("budget_multiplier"))
-	if mode == "siege": budget = minf(12000, budget * 1.25)
+	spawn_reserve.clear()
+	var budget = minf(1e12, (28 + wave * 16 + pow(minf(wave, 5000), 1.15) * 2) * world.rule("budget_multiplier"))
+	if mode == "siege": budget = minf(1e12, budget * 1.25)
 	faction_name = Rules.faction(stats, wave, adaptive_run)
 	if wave % int(world.rule("boss_interval")) == 0:
 		spawn_queue.append("boss")
@@ -822,6 +865,7 @@ func start_wave() -> bool:
 		spawn_queue.append(id)
 		budget -= catalog.enemies[id].cost
 		count += 1
+	reserve_budget(budget, pool)
 	var scheduled_event = upcoming_event(wave)
 	if scheduled_event == "Explosive swarm":
 		for i in spawn_queue.size():
@@ -829,6 +873,16 @@ func start_wave() -> bool:
 	elif scheduled_event == "Elite invasion":
 		for i in spawn_queue.size():
 			if spawn_queue[i] != "boss" and i % 4 == 0: spawn_queue[i] = "tank"
+	var conversion = 3 if scheduled_event == "Explosive swarm" else (4 if scheduled_event == "Elite invasion" else 0)
+	if conversion > 0:
+		var converted = 0
+		var replacement = "exploder" if conversion == 3 else "tank"
+		for id in spawn_reserve:
+			if id == replacement: continue
+			var amount = int(spawn_reserve[id]) / conversion
+			spawn_reserve[id] = int(spawn_reserve[id]) - amount
+			converted += amount
+		spawn_reserve[replacement] = int(spawn_reserve.get(replacement, 0)) + converted
 	spawn_timer = 0.2
 	event_name = upcoming_event(wave)
 	visuals.set_weather("Acid rain" if challenge("acid_rain") else event_name, wave)
@@ -899,7 +953,7 @@ func spawn_enemy(id: String, spawn_pos: Vector3 = Vector3.ZERO) -> void:
 	enemies[enemy.uid] = enemy
 
 func finish_wave() -> void:
-	if state != "wave" or completed >= wave or not spawn_queue.is_empty() or not enemies.is_empty():
+	if state != "wave" or completed >= wave or queued_enemies() > 0 or not enemies.is_empty():
 		return
 	completed = wave
 	state = "completion"
@@ -1326,24 +1380,45 @@ func _physics_process(delta: float) -> void:
 	if spawn_timer <= 0 and not spawn_queue.is_empty() and enemies.size() < active_cap:
 		spawn_enemy(spawn_queue.pop_front())
 		spawn_timer = maxf(0.12, world.rule("spawn_interval") / (1 + wave * 0.08))
+	elif spawn_timer <= 0 and spawn_queue.is_empty() and not spawn_reserve.is_empty() and enemies.size() < active_cap:
+		refill_spawns()
+	var phase_start = Time.get_ticks_usec()
 	update_enemies(delta)
+	simulation_phases.enemies = (Time.get_ticks_usec() - phase_start) / 1000.0
 	if state != "wave": return
+	phase_start = Time.get_ticks_usec()
 	update_towers(delta)
+	simulation_phases.towers = (Time.get_ticks_usec() - phase_start) / 1000.0
+	phase_start = Time.get_ticks_usec()
 	update_projectiles(delta)
+	simulation_phases.projectiles = (Time.get_ticks_usec() - phase_start) / 1000.0
 	hazard_timer -= delta
 	if hazard_timer <= 0:
 		hazard_timer = 0.5
 		update_hazards()
-	if spawn_queue.is_empty() and enemies.is_empty():
+	if queued_enemies() == 0 and enemies.is_empty():
 		finish_wave()
 	simulation_ms = (Time.get_ticks_usec() - start) / 1000.0
 	peak_simulation_ms = maxf(peak_simulation_ms, simulation_ms)
 
+func move_enemy(node: CharacterBody3D, delta: float) -> void:
+	if not world.flat_floor or not node.is_on_floor() or absf(node.position.y) > 0.01:
+		node.move_and_slide()
+		return
+	var motion = Vector3(node.velocity.x, 0, node.velocity.z) * delta
+	if motion.length_squared() <= 0.000001: return
+	var collision = node.move_and_collide(motion)
+	if collision:
+		var remainder = collision.get_remainder().slide(collision.get_normal())
+		if remainder.length_squared() > 0.000001: node.move_and_collide(remainder)
+
 func update_enemies(delta: float) -> void:
+	var movement_us = 0
+	var crowd_us = 0
 	var objective_pos = world.position(world.marker("objective"))
 	var buckets: Dictionary = {}
 	for enemy in enemies.values():
-		var key = world.cell_key(world.cell(enemy.node.position))
+		var key = Vector2i(floori(enemy.node.position.x / 1.5), floori(enemy.node.position.z / 1.5))
 		if not buckets.has(key): buckets[key] = []
 		buckets[key].append(enemy.uid)
 	for uid in enemies.keys():
@@ -1383,7 +1458,10 @@ func update_enemies(delta: float) -> void:
 			cached_speed /= world.movement_cost(world.cell(pos))
 			node.velocity = enemy.steering * cached_speed
 			node.velocity.y = -2
-			if enemy.steering.length_squared() > 0.001 or not node.is_on_floor(): node.move_and_slide()
+			if enemy.steering.length_squared() > 0.001 or not node.is_on_floor():
+				var movement_start = Time.get_ticks_usec()
+				move_enemy(node, delta)
+				movement_us += Time.get_ticks_usec() - movement_start
 			node.get_node("Model").position.y = sin(elapsed * enemy.speed * 4 + uid) * 0.035 if enemy.ai == "navigate" else 0
 			continue
 		enemy.think_timer = 0.1
@@ -1415,7 +1493,7 @@ func update_enemies(delta: float) -> void:
 		var reach = float(enemy.range) + (1 if target_kind in ["core", "structure"] else 0)
 		if enemy.type == "boss" and enemy.health < enemy.max_health * 0.5: reach = 14
 		var can_see = true
-		if reach > 4:
+		if reach > 4 and target_distance <= reach:
 			var hit = ray(pos + Vector3.UP * 1.2, target + Vector3.UP * 1.2, 5, [node.get_rid()])
 			can_see = hit.is_empty() or (target_kind == "core" and hit.collider.has_meta("core")) or hit.collider == player
 		if target_distance > reach or not can_see:
@@ -1470,22 +1548,31 @@ func update_enemies(delta: float) -> void:
 			enemy.ai = "navigate"
 			var steering = direction.normalized()
 			var current = world.cell(pos)
+			var bucket = Vector2i(floori(pos.x / 1.5), floori(pos.z / 1.5))
+			var crowd_start = Time.get_ticks_usec()
 			for dx in range(-1, 2):
 				for dy in range(-1, 2):
-					for other_uid in buckets.get(world.cell_key(current + Vector2i(dx, dy)), []):
+					for other_uid in buckets.get(bucket + Vector2i(dx, dy), []):
 						if other_uid == uid or not enemies.has(other_uid): continue
 						var away = pos - enemies[other_uid].node.position
 						away.y = 0
-						if away.length_squared() < 1.6 and away.length_squared() > 0.001:
-							steering += away.normalized() * (1.2 - away.length()) * 0.7
+						var squared = away.length_squared()
+						if squared < 1.6 and squared > 0.001:
+							var distance = sqrt(squared)
+							steering += away * ((1.2 - distance) * 0.7 / distance)
+			crowd_us += Time.get_ticks_usec() - crowd_start
 			var speed = float(enemy.speed) * (1 - minf(0.9, enemy.slow))
 			speed /= world.movement_cost(current)
 			node.velocity = steering.limit_length(1) * speed
 			enemy.steering = steering.limit_length(1)
 			node.velocity.y = -2
-		node.move_and_slide()
+		var movement_start = Time.get_ticks_usec()
+		move_enemy(node, delta)
+		movement_us += Time.get_ticks_usec() - movement_start
 		var model = node.get_node("Model")
 		model.position.y = sin(elapsed * enemy.speed * 4 + uid) * 0.035 if enemy.ai == "navigate" else 0
+	simulation_phases.enemy_movement = movement_us / 1000.0
+	simulation_phases.enemy_crowd = crowd_us / 1000.0
 
 func update_towers(delta: float) -> void:
 	for key in world.construction.keys():
@@ -1922,12 +2009,38 @@ func benchmark_setup() -> void:
 		visuals.rebuild()
 		start_wave()
 		for i in active_cap: spawn_enemy(catalog.enemies.keys()[i % 9])
+		if benchmark_horde > 0:
+			spawn_queue.clear()
+			spawn_reserve = {"grunt": benchmark_horde}
 	print("BENCHMARK initialized engine=", Engine.get_version_info().string)
+
+func _process(delta: float) -> void:
+	if not autoplay or benchmark_time < 2 or quitting: return
+	var milliseconds = mini(1000, int(ceil(delta * 1000.0)))
+	benchmark_frame_bins[milliseconds] = int(benchmark_frame_bins.get(milliseconds, 0)) + 1
+	benchmark_frames += 1
+	benchmark_frame_seconds += delta
+	benchmark_worst_frame = maxf(benchmark_worst_frame, delta * 1000.0)
+
+func benchmark_frame_summary() -> Dictionary:
+	var result = {"frames": benchmark_frames, "average_fps": benchmark_frames / maxf(0.001, benchmark_frame_seconds), "worst_ms": benchmark_worst_frame, "warmup_seconds": 2}
+	var bins = benchmark_frame_bins.keys()
+	bins.sort()
+	var cumulative = 0
+	var slow_frames = 0
+	for milliseconds in bins:
+		cumulative += int(benchmark_frame_bins[milliseconds])
+		if milliseconds > 33: slow_frames += int(benchmark_frame_bins[milliseconds])
+		if not result.has("p95_ms") and cumulative >= ceili(benchmark_frames * 0.95): result.p95_ms = milliseconds
+		if not result.has("p99_ms") and cumulative >= ceili(benchmark_frames * 0.99): result.p99_ms = milliseconds
+	result.over_33ms_percent = slow_frames * 100.0 / maxi(1, benchmark_frames)
+	return result
 
 func benchmark_update(delta: float) -> void:
 	if quitting: return
 	benchmark_time += delta
 	if benchmark_time > benchmark_duration or (state == "results" and benchmark_time > 10):
+		print("BENCHMARK FRAMES ", JSON.stringify(benchmark_frame_summary()))
 		print("BENCHMARK FINAL ", JSON.stringify({"seconds": elapsed, "completed": completed, "stats": stats, "enemies": enemies.size(), "fps": Engine.get_frames_per_second(), "simulation_ms": simulation_ms, "peak_simulation_ms": peak_simulation_ms, "nav_ms": world.nav_ms, "memory": OS.get_static_memory_usage(), "resolution": str(DisplayServer.window_get_size()), "samples": benchmark_stats}))
 		for enemy in enemies.values().slice(0, 10): print("BENCHMARK survivor ", enemy.type, " hp=", enemy.health, " position=", enemy.node.position, " cell=", world.cell(enemy.node.position), " next=", world.next_cell(world.cell(enemy.node.position)), " ai=", enemy.ai)
 		quit_game()
@@ -1935,6 +2048,10 @@ func benchmark_update(delta: float) -> void:
 	if int(benchmark_time / 10) > benchmark_stats.size():
 		benchmark_stats.append({"seconds": benchmark_time, "enemies": enemies.size(), "fps": Engine.get_frames_per_second(), "sim_ms": simulation_ms, "memory": OS.get_static_memory_usage(), "draw_calls": RenderingServer.get_rendering_info(RenderingServer.RENDERING_INFO_TOTAL_DRAW_CALLS_IN_FRAME)})
 		benchmark_stats[-1].render = render_times()
+		benchmark_stats[-1].phases = simulation_phases.duplicate()
+		benchmark_stats[-1].physics_ms = Performance.get_monitor(Performance.TIME_PHYSICS_PROCESS) * 1000.0
+		benchmark_stats[-1].queued = queued_enemies()
+		benchmark_stats[-1].spawn_buffer = spawn_queue.size()
 	if benchmark_content and state == "wave":
 		var id = catalog.weapons.keys()[mini(8, int(benchmark_time / 20))]
 		if id != benchmark_weapon:

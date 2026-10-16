@@ -16,7 +16,7 @@ static func valid_vector(game, value: Variant, bound: float = 1000) -> bool:
 	return true
 
 static func snapshot(game) -> Dictionary:
-	var result = {"enemies": [], "projectiles": [], "queue": game.spawn_queue.duplicate(), "next_uid": game.next_uid, "spawn_timer": game.spawn_timer, "hazard_timer": game.hazard_timer, "kill_timer": game.kill_timer, "kill_streak": game.kill_streak, "faction": game.faction_name}
+	var result = {"enemies": [], "projectiles": [], "queue": game.spawn_queue.duplicate(), "reserve": game.spawn_reserve.duplicate(), "next_uid": game.next_uid, "spawn_timer": game.spawn_timer, "hazard_timer": game.hazard_timer, "kill_timer": game.kill_timer, "kill_streak": game.kill_streak, "faction": game.faction_name}
 	for enemy in game.enemies.values():
 		var item = {"type": enemy.type, "uid": enemy.uid, "position": vector(enemy.node.position), "velocity": vector(enemy.node.velocity), "yaw": enemy.node.rotation.y, "steering": vector(enemy.steering), "elite": enemy.elite, "ai": enemy.ai, "burn_source": enemy.burn_source}
 		for field in ENEMY_NUMBERS: item[field] = enemy[field]
@@ -39,6 +39,15 @@ static func valid(game, value: Variant) -> bool:
 	if value.get("faction") not in ["None", "Disruptors", "Bulwark", "Artillery", "Purifiers", "Vanguard"]: return false
 	for id in value.queue:
 		if not id is String or not game.catalog.enemies.has(id): return false
+	var reserve = value.get("reserve", {})
+	if not reserve is Dictionary: return false
+	var reserve_total = 0
+	for id in reserve:
+		var count = reserve[id]
+		if not id is String or not game.catalog.enemies.has(id): return false
+		if not game.profile.numeric(count, 0, 1e12) or count != int(count): return false
+		reserve_total += int(count)
+		if reserve_total > 1e12: return false
 	var identities: Dictionary = {}
 	for enemy in value.enemies:
 		if not enemy is Dictionary or not enemy.get("type") is String or not game.catalog.enemies.has(enemy.type): return false
@@ -71,6 +80,7 @@ static func valid(game, value: Variant) -> bool:
 static func restore(game, value: Dictionary) -> void:
 	game.next_uid = int(value.next_uid)
 	game.spawn_queue = value.queue.duplicate()
+	game.spawn_reserve = value.get("reserve", {}).duplicate()
 	game.spawn_timer = float(value.spawn_timer)
 	game.hazard_timer = float(value.hazard_timer)
 	game.kill_timer = float(value.kill_timer)

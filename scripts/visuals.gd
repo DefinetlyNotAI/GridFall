@@ -189,14 +189,17 @@ func rebuild() -> void:
 	apply_render_settings()
 	var floor_body = StaticBody3D.new()
 	geometry.add_child(floor_body)
-	for y in h:
-		var start = -1
-		for x in range(w + 1):
-			var present = x < w and world.map.layers.ground.has(world.cell_key(Vector2i(x, y)))
-			if present and start < 0: start = x
-			if not present and start >= 0:
-				collision(floor_body, Vector3((x - start) * 3, 0.4, 3), Vector3((start + x) * 1.5, -0.2, (y + 0.5) * 3))
-				start = -1
+	if world.map.layers.ground.size() == w * h:
+		collision(floor_body, Vector3(w * 3, 0.4, h * 3), Vector3(w * 1.5, -0.2, h * 1.5))
+	else:
+		for y in h:
+			var start = -1
+			for x in range(w + 1):
+				var present = x < w and world.map.layers.ground.has(world.cell_key(Vector2i(x, y)))
+				if present and start < 0: start = x
+				if not present and start >= 0:
+					collision(floor_body, Vector3((x - start) * 3, 0.4, 3), Vector3((start + x) * 1.5, -0.2, (y + 0.5) * 3))
+					start = -1
 	var terrain_colors = {"concrete": Color("303e48"), "grass": Color("344c3d"), "dirt": Color("5b4d40"), "sand": Color("8c7d56"), "road": Color("202d35"), "metal": Color("344a55"), "stone": Color("4f5358"), "water": Color("174b65")}
 	for terrain in terrain_colors:
 		var cells: Array = []

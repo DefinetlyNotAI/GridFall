@@ -38,6 +38,8 @@ var applied: Array = []
 var flow: Dictionary = {}
 var fields: Dictionary = {}
 var nav_ms = 0.0
+var flat_floor = false
+var uniform_cost = 1.0
 
 func default_rules() -> Dictionary:
 	var result: Dictionary = {}
@@ -306,6 +308,19 @@ func rebuild_flow() -> void:
 	fields.clear()
 	if map.is_empty():
 		return
+	uniform_cost = -1.0
+	for tile in map.layers.ground.values():
+		var cost = float(tile.get("movement_cost", 2.0 if tile.type == "water" else 1.0))
+		if uniform_cost < 0: uniform_cost = cost
+		elif uniform_cost != cost:
+			uniform_cost = 0.0
+			break
+	flat_floor = map.layers.ground.size() == int(map.width) * int(map.height)
+	if flat_floor:
+		for tile in map.layers.structure.values():
+			if tile.type in ["ramp", "stairs"]:
+				flat_floor = false
+				break
 	var target = marker("objective")
 	flow = navigation_field(target)
 	nav_ms = (Time.get_ticks_usec() - start) / 1000.0
@@ -314,6 +329,23 @@ func navigation_field(target: Vector2i) -> Dictionary:
 	var target_key = cell_key(target)
 	if fields.has(target_key): return fields[target_key]
 	var result: Dictionary = {}
+	if uniform_cost > 0:
+		var frontier: Array = [target]
+		var head = 0
+		result[target_key] = 0.0
+		while head < frontier.size():
+			var p: Vector2i = frontier[head]
+			head += 1
+			for d in [Vector2i.LEFT, Vector2i.RIGHT, Vector2i.UP, Vector2i.DOWN]:
+				var next: Vector2i = p + d
+				var key = cell_key(next)
+				if not inside(next) or result.has(key): continue
+				if fixed_solid(next) and not can_destroy(next): continue
+				result[key] = float(result[cell_key(p)]) + uniform_cost
+				frontier.append(next)
+		if fields.size() >= 32: fields.clear()
+		fields[target_key] = result
+		return result
 	var queue: Array = []
 	result[target_key] = 0.0
 	_heap_push(queue, [target_key, 0.0])
