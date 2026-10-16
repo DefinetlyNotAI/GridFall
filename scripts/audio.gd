@@ -11,7 +11,7 @@ var variation_rng = RandomNumberGenerator.new()
 func setup(owner_game) -> void:
 	game = owner_game
 	variation_rng.randomize()
-	for cue_name in ["shot", "hit", "kill", "build", "wave", "reload", "hurt", "explosion", "step", "ui"]:
+	for cue_name in ["shot", "hit", "kill", "build", "wave", "reload", "hurt", "explosion", "step", "ui", "dash", "slide", "wall_jump", "slam"]:
 		streams[cue_name] = synth(cue_name)
 	for i in 16:
 		var voice = AudioStreamPlayer3D.new()
@@ -53,6 +53,10 @@ func synth(kind: String) -> AudioStreamWAV:
 		"hurt": frequency = 75; duration = 0.25
 		"explosion": frequency = 40; duration = 0.5
 		"step": frequency = 60; duration = 0.08
+		"dash": frequency = 260; duration = 0.24
+		"slide": frequency = 180; duration = 0.34
+		"wall_jump": frequency = 190; duration = 0.18
+		"slam": frequency = 72; duration = 0.42
 	var stream = AudioStreamWAV.new()
 	stream.format = AudioStreamWAV.FORMAT_16_BITS
 	stream.mix_rate = 22050
@@ -63,9 +67,28 @@ func synth(kind: String) -> AudioStreamWAV:
 	random.seed = kind.hash()
 	for i in count:
 		var t = float(i) / 22050
-		var envelope = pow(1.0 - float(i) / count, 2)
-		var noise = random.randf_range(-1, 1) * (0.7 if kind in ["shot", "explosion", "step"] else 0.12)
-		var sample = (sin(TAU * frequency * t * (1 - t)) * 0.4 + noise) * envelope
+		var progress = float(i) / count
+		var envelope = pow(1.0 - progress, 2)
+		var noise_level = 0.7 if kind in ["shot", "explosion", "step"] else 0.12
+		var phase = TAU * frequency * t * (1 - t)
+		var sample = sin(phase) * 0.4
+		if kind in ["dash", "slide"]:
+			var sweep = frequency * t * (1.0 - progress * 0.72)
+			var whoosh = sin(TAU * sweep) * 0.36 + sin(TAU * sweep * 0.53) * 0.18
+			var attack = minf(1.0, progress * 18.0)
+			noise_level = 0.38 if kind == "dash" else 0.28
+			sample = (whoosh + random.randf_range(-1, 1) * noise_level) * envelope * attack
+		elif kind == "wall_jump":
+			var rising = frequency * t * (1.0 + progress * 1.8)
+			sample = (sin(TAU * rising) * 0.42 + sin(TAU * rising * 2.0) * 0.12) * envelope
+		elif kind == "slam":
+			var falling = frequency * t * (1.0 - progress * 0.82)
+			var thump = sin(TAU * falling) * 0.55 + sin(TAU * falling * 0.5) * 0.25
+			noise_level = 0.42
+			sample = (thump + random.randf_range(-1, 1) * noise_level) * envelope
+		else:
+			var noise = random.randf_range(-1, 1) * noise_level
+			sample = (sample + noise) * envelope
 		bytes.encode_s16(i * 2, int(sample * 19000))
 	stream.data = bytes
 	return stream

@@ -18,7 +18,7 @@ Requires **Godot 4.4 or newer**, Windows 10/11, and an OpenGL 3.3 compatible GPU
 | --- | --- |
 | Move / look | WASD / mouse |
 | Fire / aim | Left / right mouse |
-| Sprint / jump / crouch | Shift / Space / Ctrl |
+| Dash / jump or wall jump / crouch, slide or slam | Shift / Space / Ctrl |
 | Reload / switch weapons | R / 1, 2 or mouse wheel |
 | Collect nearby loot / use supply station / open door | E |
 | Pulse ability / medkit / grenade | Q / C / G |
@@ -30,6 +30,8 @@ Requires **Godot 4.4 or newer**, Windows 10/11, and an OpenGL 3.3 compatible GPU
 | Sandbox controls | F4 |
 
 Movement and interaction keys can be rebound in Settings. Mouse sensitivity, field of view, recoil, crosshair, HUD text size, audio, shadows, frame limit, VSync, fullscreen, and window size can also be changed.
+
+Movement takes inspiration from fast arena shooters: run at 12 m/s, tap Shift for a ground or air dash, and hold Ctrl while moving to slide. Dashes use three recharging charges, shown below the crosshair, and briefly avoid direct damage; damage-over-time and falling remain dangerous. Air control preserves momentum, including slide jumps and jumps out of a dash. Space near a wall permits up to three wall jumps before landing. Tap Ctrl in the air to slam down, damaging nearby enemies on impact; jump just as you land for a higher rebound. A short jump buffer and ledge grace period make timing forgiving. Movement research and terrain still affect speed. Settings can disable movement speed lines, FOV expansion, and camera tilt; slide stamina is optional. Movement state persists in paused combat checkpoints.
 
 ## Play
 
@@ -47,7 +49,7 @@ Ascension becomes available after reaching wave 25 and researching 20 technologi
 
 From wave 12, optional adaptive factions react to tower, explosive, close-range, or elemental damage. Planning explains the next faction. Adaptation changes composition weights, with blast/status resistance limited to 20%; it can be disabled in Settings for subsequent runs. Elites and a third boss phase add later-wave pressure. Twenty-five achievements track combat, engineering, survival, modes, and Ascension.
 
-Weather includes rain, thunderstorms, and acid-rain events; ceilings shelter the player from acid rain. Settings can disable weather visuals, enable restrained camera motion and sprint stamina, or choose a pixelated Retro or High Contrast scene. UI text remains sharp. Ground materials use procedural normal maps, and bullet marks use a bounded reusable pool.
+Weather includes rain, thunderstorms, and acid-rain events; ceilings shelter the player from acid rain. Settings can disable weather visuals, enable restrained camera motion and slide stamina, or choose a pixelated Retro or High Contrast scene. UI text remains sharp. Ground materials use procedural normal maps, and bullet marks use a bounded reusable pool.
 
 Content includes nine weapon classes, ten enemy types including a phased Siege Titan every tenth wave, sixteen defensive structures and machines, seven tower targeting modes, two upgrade specializations, elemental effects, chain lightning, penetrating rail fire, projectiles, grenades, shields, and procedural audio. No generated artwork or third-party game assets are included.
 
@@ -110,5 +112,7 @@ After optimizing navigation, crowd searches, floor collision, and grounded movem
 Combat checkpoint verification restored enemies with burn, poison, and slow effects, a live projectile, ability cooldowns, and the exact next RNG value; resuming another checkpoint completed its partially spawned wave through tower combat. Legacy checkpoint migration, malformed combat-data backup recovery, all-on/all-off Challenge rules, and capped-upgrade continuation passed isolated runtime checks.
 
 The follow-up audit restored a billion-enemy reserve with exact RNG state, rejected fractional/unknown/overflow reserve data, and drained a small reserve through actual spawning and a single wave reward. A billion-scale wave composed in 461 microseconds with only 601 explicit queue entries. Another standard run naturally ended on wave 13 after 126 kills and awarded 112 TP; the content scenario exercised all nine weapons and sixteen structures, cleared wave 17, and defeated a boss. Engine-dispatched B opened planning and pause froze time and ammunition. Imported coordinate aliases are rejected, the boss HUD displays phase three, and enemies falling below custom-map terrain return to an active portal without healing, rewards, or consuming RNG.
+
+The movement update passed live physics checks for 12 m/s running, dashing, momentum slides, jump/slam damage, wall-jump push and the three-jump limit, dash charge exhaustion, disabled FOV effects, and exact paused checkpoint restoration with legacy-save compatibility. Rendered captures verified the speed lines and dash meter. Movement decorations draw at most 20 speed lines and one fixed-segment impact ring; movement audio reuses the existing 16-voice pool. The updated Windows export's 30-second horde regression run averaged 92 FPS at an actual 1920×991 window size with 250 active enemies and a billion queued, with an 18 ms p99 and an 88.44 ms worst frame. This benchmark uses stationary autoplay; moving effects were visually checked separately.
 
 The final audit added editable world rules and evolution events, version-1 map migration, intermediate route validation, weighted terrain navigation, and consistent platform collision/destruction. Runtime checks also verified construction and checkpoint restoration on newly cleared ground, lighting-event overrides, support healing cadence, and research unlock snapshots. Core and optional systems in this scope are implemented; the performance and platform limits above remain. Art uses engine-native primitives and procedural materials.

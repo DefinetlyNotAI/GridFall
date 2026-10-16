@@ -839,7 +839,7 @@ func show_settings() -> void:
 		spin.value = settings[entry[0]]
 		spin.value_changed.connect(func(value): settings[entry[0]] = value; game.apply_settings())
 		line.add_child(spin)
-	for entry in [["fullscreen", "Fullscreen"], ["vsync", "VSync"], ["crosshair", "Crosshair"], ["shake", "Camera recoil"], ["adaptive", "Adaptive factions for new runs"], ["weather", "Weather visuals"], ["camera_motion", "Head bob, landing feedback and weapon sway"], ["stamina", "Sprint stamina"]]:
+	for entry in [["fullscreen", "Fullscreen"], ["vsync", "VSync"], ["crosshair", "Crosshair"], ["shake", "Camera recoil"], ["adaptive", "Adaptive factions for new runs"], ["weather", "Weather visuals"], ["camera_motion", "Head bob, landing feedback and weapon sway"], ["movement_effects", "Speed lines, movement FOV and camera tilt"], ["stamina", "Slide stamina"]]:
 		var check = CheckButton.new()
 		check.text = entry[1]
 		check.button_pressed = settings[entry[0]]
@@ -874,7 +874,8 @@ func show_settings() -> void:
 	for action in ["forward", "back", "left", "right", "jump", "sprint", "crouch", "reload", "interact", "ability", "restoration", "inventory", "planning", "next_wave", "weapon1", "weapon2", "heal", "grenade", "pause"]:
 		var events = InputMap.action_get_events(action)
 		var key = events[0].as_text_physical_keycode() if not events.is_empty() else "Unbound"
-		button(key_col, action.replace("_", " ").capitalize() + " : " + key, func(): rebind_action = action; notify("Press a key for " + action + ". Escape cancels."))
+		var action_name = "Dash" if action == "sprint" else ("Crouch / slide / slam" if action == "crouch" else action.replace("_", " ").capitalize())
+		button(key_col, action_name + " : " + key, func(): rebind_action = action; notify("Press a key for " + action_name + ". Escape cancels."))
 	button(key_col, "Reset bindings", func(): settings.keys.clear(); game.configure_input(); show_settings())
 
 func show_credits() -> void:

@@ -624,6 +624,7 @@ func damage_enemy(uid: int, amount: float, source: String, origin: Vector3 = Vec
 func damage_player(amount: float, status_damage: bool = false) -> void:
 	if state != "wave":
 		return
+	if not status_damage and player.dash_timer > 0: return
 	amount *= 1 - minf(0.65, bonus("armor"))
 	if status_damage: amount *= 1 - bonus("status_resist")
 	var absorbed = minf(shield, amount)
@@ -1755,6 +1756,7 @@ func save_run() -> bool:
 	record.extended.velocity = CombatSave.vector(player.velocity)
 	record.extended.crouched = player.crouched
 	record.extended.exhausted = player.sprint_exhausted
+	record.extended.movement = player.movement_snapshot()
 	record.extended.challenges = active_challenges
 	record.extended.research = run_research
 	if not valid_run(record):
@@ -1846,6 +1848,7 @@ func load_run() -> void:
 	player.velocity = CombatSave.unpack(extended.get("velocity", [0, 0, 0]))
 	player.crouched = extended.get("crouched", false)
 	player.sprint_exhausted = extended.get("exhausted", false)
+	player.restore_movement(extended.get("movement", {}))
 	player.body_shape.shape.height = 1.1 if player.crouched else 1.8
 	player.body_shape.position.y = 0.55 if player.crouched else 0.9
 	player.camera.position.y = 1.0 if player.crouched else 1.65
@@ -1874,6 +1877,15 @@ func valid_run(value: Variant) -> bool:
 	if value.id in profile.data.awarded or not Rules.MODES.has(value.mode) or value.mode == "sandbox": return false
 	if not value.get("extended", {}) is Dictionary: return false
 	var extended = value.get("extended", {})
+	if not extended.get("movement", {}) is Dictionary: return false
+	var movement = extended.get("movement", {})
+	var limits = {"energy": 3.0, "dash": 0.16, "coyote": 0.1, "jump": 0.12, "slam_jump": 0.18, "walls": 3.0}
+	for key in limits:
+		if movement.has(key) and not profile.numeric(movement[key], 0, limits[key]): return false
+	if movement.has("walls") and movement.walls != int(movement.walls): return false
+	for key in ["slide", "slam"]:
+		if movement.has(key) and not movement[key] is bool: return false
+	if movement.has("direction") and not CombatSave.valid_vector(self, movement.direction, 1): return false
 	if not extended.get("research", {}) is Dictionary: return false
 	for id in extended.get("research", {}):
 		var nodes = catalog.technologies.filter(func(node): return node.id == id)
