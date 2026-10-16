@@ -12,6 +12,14 @@ var core: Node3D
 var sun: DirectionalLight3D
 var atmosphere: WorldEnvironment
 var effects_rng = RandomNumberGenerator.new()
+var rain: CPUParticles3D
+var weather = "Clear"
+var lightning_timer = 0.0
+var post: ColorRect
+var impacts: Array = []
+var floor_normal: NoiseTexture2D
+var enemy_meshes: Dictionary = {}
+var enemy_material: StandardMaterial3D
 
 func material(color: Color, emission: float = 0.0, metal: float = 0.0) -> StandardMaterial3D:
 	var key = str(color) + str(emission) + str(metal)
@@ -64,6 +72,16 @@ func collision(parent: CollisionObject3D, size: Vector3, offset: Vector3) -> voi
 func setup(owner_game) -> void:
 	game = owner_game
 	effects_rng.randomize()
+	floor_normal = NoiseTexture2D.new()
+	floor_normal.width = 128
+	floor_normal.height = 128
+	floor_normal.seamless = true
+	floor_normal.as_normal_map = true
+	floor_normal.bump_strength = 0.25
+	var noise = FastNoiseLite.new()
+	noise.seed = 937
+	noise.frequency = 0.12
+	floor_normal.noise = noise
 	atmosphere = WorldEnvironment.new()
 	atmosphere.environment = Environment.new()
 	atmosphere.environment.background_mode = Environment.BG_COLOR
@@ -82,10 +100,71 @@ func setup(owner_game) -> void:
 	sun.light_energy = 1.5
 	sun.shadow_enabled = true
 	add_child(sun)
+	var sky = Sky.new()
+	var sky_material = ProceduralSkyMaterial.new()
+	sky_material.sky_top_color = Color("0e1c35")
+	sky_material.sky_horizon_color = Color("567788")
+	sky_material.ground_bottom_color = Color("101c29")
+	sky_material.ground_horizon_color = Color("567788")
+	sky.sky_material = sky_material
+	atmosphere.environment.sky = sky
+	atmosphere.environment.background_mode = Environment.BG_SKY
+	atmosphere.environment.fog_height = 0
+	atmosphere.environment.fog_height_density = 0.08
+	var layer = CanvasLayer.new()
+	layer.layer = 0
+	add_child(layer)
+	post = ColorRect.new()
+	post.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	post.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	var screen_material = ShaderMaterial.new()
+	screen_material.shader = preload("res://scripts/display.gdshader")
+	post.material = screen_material
+	layer.add_child(post)
+	rain = CPUParticles3D.new()
+	rain.emitting = false
+	rain.amount = 160
+	rain.lifetime = 1.2
+	rain.emission_shape = CPUParticles3D.EMISSION_SHAPE_BOX
+	rain.emission_box_extents = Vector3(12, 1, 12)
+	rain.direction = Vector3(0.15, -1, 0)
+	rain.spread = 4
+	rain.initial_velocity_min = 16
+	rain.initial_velocity_max = 21
+	rain.gravity = Vector3(0, -4, 0)
+	var drop_mesh = BoxMesh.new()
+	drop_mesh.size = Vector3(0.025, 0.45, 0.025)
+	rain.mesh = drop_mesh
+	rain.material_override = material(Color("88c6de"), 0.3)
+	add_child(rain)
 	for i in 96:
 		var mesh = box(self, Vector3.ZERO, Vector3(0.025, 0.025, 1), Color("ffce7a"), 2)
 		mesh.visible = false
 		effects.append({"mesh": mesh, "life": 0.0})
+
+func apply_render_settings() -> void:
+	if not is_instance_valid(post): return
+	var settings = game.profile.data.settings
+	post.visible = int(settings.visual_mode) > 0
+	post.material.set_shader_parameter("display_mode", int(settings.visual_mode))
+	if RenderingServer.get_current_rendering_method() == "forward_plus":
+		atmosphere.environment.ssr_enabled = settings.advanced_lighting
+		atmosphere.environment.ssao_enabled = settings.advanced_lighting
+		atmosphere.environment.volumetric_fog_enabled = settings.advanced_lighting
+		atmosphere.environment.volumetric_fog_density = 0.015
+	rain.amount = 64 if settings.quality == 0 else 160
+	rain.emitting = settings.weather and weather != "Clear" and game.state == "wave"
+	if not settings.weather or weather != "Thunderstorm": sun.light_energy = 0.25 if game.event_name == "Blackout" else 1.5
+
+func set_weather(event: String, number: int) -> void:
+	weather = "Acid rain" if event == "Acid rain" else ("Thunderstorm" if number % 19 == 0 else ("Rain" if number % 8 == 3 else "Clear"))
+	lightning_timer = 3
+	rain.material_override = material(Color("a9d16d") if weather == "Acid rain" else Color("88c6de"), 0.3)
+	apply_render_settings()
+
+func clear_weather() -> void:
+	weather = "Clear"
+	if rain: rain.emitting = false
 
 func rebuild() -> void:
 	if is_instance_valid(geometry):
@@ -127,6 +206,9 @@ func rebuild() -> void:
 			mm.set_instance_transform(i, Transform3D(Basis(), world.position(cells[i], -0.075)))
 		multi.multimesh = mm
 		multi.material_override = material(terrain_colors[terrain])
+		multi.material_override.normal_enabled = true
+		multi.material_override.normal_texture = floor_normal
+		multi.material_override.normal_scale = 0.2
 		geometry.add_child(multi)
 	for key in world.map.layers.structure:
 		fixed_tile(key)
@@ -295,18 +377,47 @@ func enemy(data: Dictionary) -> CharacterBody3D:
 	model.name = "Model"
 	model.scale = Vector3.ONE * scale_value
 	body.add_child(model)
-	box(model, Vector3(0, 0.95, 0), Vector3(0.9, 0.85, 0.65), color)
-	box(model, Vector3(0, 1.6, -0.05), Vector3(0.65, 0.5, 0.65), color.darkened(0.2))
-	box(model, Vector3(0, 1.64, -0.39), Vector3(0.5, 0.12, 0.05), Color("ffbf80"), 1.5)
-	for side in [-1, 1]:
-		box(model, Vector3(side * 0.25, 0.3, 0), Vector3(0.25, 0.6, 0.3), Color("24323d"))
-		box(model, Vector3(side * 0.65, 0.95, -0.08), Vector3(0.25, 0.8, 0.3), color.darkened(0.25))
-	if data.type in ["shielded", "tank"]:
-		box(model, Vector3(0, 1.0, -0.5), Vector3(1.1, 1.0, 0.15), Color("526a79"))
+	var mesh = MeshInstance3D.new()
+	mesh.mesh = enemy_mesh(data.type, color)
+	if enemy_material == null:
+		enemy_material = StandardMaterial3D.new()
+		enemy_material.vertex_color_use_as_albedo = true
+		enemy_material.roughness = 0.72
+		enemy_material.metallic = 0.35
+	mesh.material_override = enemy_material
+	model.add_child(mesh)
 	if data.type == "boss":
 		for side in [-1, 1]:
 			cylinder(model, Vector3(side * 0.8, 1.65, 0), 0.25, 0.8, Color("ff8b4a"), 1)
 	return body
+
+func enemy_mesh(kind: String, color: Color) -> ArrayMesh:
+	var key = kind + str(color)
+	if enemy_meshes.has(key): return enemy_meshes[key]
+	var parts = [
+		[Vector3(0, 0.95, 0), Vector3(0.9, 0.85, 0.65), color],
+		[Vector3(0, 1.6, -0.05), Vector3(0.65, 0.5, 0.65), color.darkened(0.2)],
+		[Vector3(0, 1.64, -0.39), Vector3(0.5, 0.12, 0.05), Color("ffbf80")]
+	]
+	for side in [-1, 1]:
+		parts.append([Vector3(side * 0.25, 0.3, 0), Vector3(0.25, 0.6, 0.3), Color("24323d")])
+		parts.append([Vector3(side * 0.65, 0.95, -0.08), Vector3(0.25, 0.8, 0.3), color.darkened(0.25)])
+	if kind in ["shielded", "tank"]: parts.append([Vector3(0, 1.0, -0.5), Vector3(1.1, 1.0, 0.15), Color("526a79")])
+	var cube = BoxMesh.new()
+	cube.size = Vector3.ONE
+	var arrays = cube.surface_get_arrays(0)
+	var builder = SurfaceTool.new()
+	builder.begin(Mesh.PRIMITIVE_TRIANGLES)
+	for part in parts:
+		for index in arrays[Mesh.ARRAY_INDEX]:
+			builder.set_color(part[2])
+			builder.set_normal(arrays[Mesh.ARRAY_NORMAL][index])
+			builder.set_uv(arrays[Mesh.ARRAY_TEX_UV][index])
+			builder.add_vertex(arrays[Mesh.ARRAY_VERTEX][index] * part[1] + part[0])
+	builder.index()
+	var result = builder.commit()
+	enemy_meshes[key] = result
+	return result
 
 func beam(from: Vector3, to: Vector3, color: Color = Color("ffc980"), width: float = 0.035, lifetime: float = 0.1) -> void:
 	if from.distance_squared_to(to) < 0.001:
@@ -345,6 +456,33 @@ func obtain_bolt(pos: Vector3, color: Color) -> MeshInstance3D:
 func release_bolt(mesh: MeshInstance3D) -> void:
 	mesh.visible = false
 
+func impact(pos: Vector3, normal: Vector3, body: Node3D) -> void:
+	if DisplayServer.get_name() == "headless" or game.profile.data.settings.quality == 0: return
+	var entry: Dictionary = {}
+	for mark in impacts:
+		if mark.life <= 0:
+			entry = mark
+			break
+	if entry.is_empty():
+		if impacts.size() >= 48: return
+		var mesh = MeshInstance3D.new()
+		var quad = QuadMesh.new()
+		quad.size = Vector2(0.16, 0.16)
+		mesh.mesh = quad
+		var ink = ShaderMaterial.new()
+		ink.shader = preload("res://scripts/impact.gdshader")
+		mesh.material_override = ink
+		mesh.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		add_child(mesh)
+		entry = {"node": mesh, "life": 0.0}
+		impacts.append(entry)
+	entry.life = 12.0
+	entry.anchor = weakref(body)
+	entry.point = body.to_local(pos + normal * 0.015)
+	entry.node.position = pos + normal * 0.015
+	entry.node.look_at(entry.node.position + normal, Vector3.RIGHT if absf(normal.y) > 0.99 else Vector3.UP)
+	entry.node.visible = true
+
 func damage_number(pos: Vector3, amount: float) -> void:
 	if DisplayServer.get_name() == "headless": return
 	var entry: Dictionary = {}
@@ -369,7 +507,26 @@ func damage_number(pos: Vector3, amount: float) -> void:
 	entry.node.visible = true
 
 func _process(delta: float) -> void:
-	if game != null and game.state == "paused": return
+	if game != null and game.state == "paused":
+		rain.speed_scale = 0
+		return
+	rain.speed_scale = 1
+	rain.emitting = game.profile.data.settings.weather and weather != "Clear" and game.state == "wave"
+	if is_instance_valid(game.player):
+		rain.position = game.player.position + Vector3.UP * 13
+	if weather == "Thunderstorm" and game.state == "wave" and game.profile.data.settings.weather:
+		lightning_timer -= delta
+		sun.light_energy = 4.0 if lightning_timer < 0.15 else 0.8
+		if lightning_timer <= 0:
+			game.audio.cue("explosion", rain.position, 0.25)
+			lightning_timer = effects_rng.randf_range(5, 9)
+	for mark in impacts:
+		if mark.life <= 0: continue
+		mark.life -= delta
+		var anchor = mark.anchor.get_ref()
+		if not is_instance_valid(anchor) or not anchor.is_inside_tree(): mark.life = 0
+		else: mark.node.position = anchor.to_global(mark.point)
+		mark.node.visible = mark.life > 0
 	for number in numbers:
 		if number.life > 0:
 			number.life -= delta

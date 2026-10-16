@@ -67,7 +67,7 @@ func setup(owner_game) -> void:
 	hud_left.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_LEFT)
 	hud_left.offset_left = 30
 	hud_left.offset_right = 400
-	hud_left.offset_top = -150
+	hud_left.offset_top = -210
 	hud_left.offset_bottom = -50
 	hud_right = floating_label(hud, Vector2.ZERO, 23)
 	hud_right.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_RIGHT)
@@ -219,6 +219,7 @@ func show_menu() -> void:
 	button(left, "Deploy", show_selection)
 	if game.resume_available: button(left, "Continue saved run", func(): game.load_run())
 	button(left, "Technology research · %d TP" % game.profile.data.tp, show_research)
+	button(left, "Ascension · %d cores" % game.profile.data.cores, show_ascension)
 	button(left, "Loadout", show_loadout)
 	button(left, "Sandbox map editor", func(): editor.open())
 	button(left, "Statistics", show_statistics)
@@ -250,8 +251,10 @@ func show_selection() -> void:
 	settings.add_child(maps)
 	label(settings, "RULES", 17, Color("7ed9cb"))
 	var mode_picker = OptionButton.new()
-	for text in ["Endless Defense", "Seeded Survival", "Sandbox · no TP", "Challenge · fast enemies / no repairs"]: mode_picker.add_item(text)
+	var mode_ids = game.Rules.MODES.keys()
+	for id in mode_ids: mode_picker.add_item(game.Rules.MODES[id].name)
 	settings.add_child(mode_picker)
+	var rule_description = label(settings, game.Rules.MODES.endless.description, 16, Color("a1b7c1"))
 	label(settings, "SEED", 17, Color("7ed9cb"))
 	var seed_input = SpinBox.new()
 	seed_input.min_value = 1
@@ -259,8 +262,12 @@ func show_selection() -> void:
 	seed_input.value = game.seed_value
 	settings.add_child(seed_input)
 	var refresh_world = func():
-		var index = absi(game.seed_value) % 2 if mode_picker.selected == 1 else game.selected_map
-		maps.disabled = mode_picker.selected == 1
+		var mode_id = mode_ids[mode_picker.selected]
+		if mode_id == "daily": game.seed_value = game.Rules.daily_seed(); seed_input.value = game.seed_value
+		seed_input.editable = mode_id != "daily"
+		rule_description.text = game.Rules.MODES[mode_id].description
+		var index = absi(game.seed_value) % 2 if mode_id in ["seeded", "daily"] else game.selected_map
+		maps.disabled = mode_id in ["seeded", "daily"]
 		maps.selected = index
 		game.world.load_map(game.world.preset(index, game.seed_value))
 		game.visuals.rebuild()
@@ -269,7 +276,7 @@ func show_selection() -> void:
 	refresh_world.call()
 	label(settings, "West approach opens after wave 4.\nEast approach opens after wave 8.\n\nThe road and core remain protected. Build on the lighter tiles.", 18, Color("a1b7c1"))
 	spacer(settings)
-	button(settings, "Begin run", func(): game.start_run(["endless", "seeded", "sandbox", "challenge"][mode_picker.selected]))
+	button(settings, "Begin run", func(): game.start_run(mode_ids[mode_picker.selected]))
 	var preview = Grid.new()
 	preview.game = game
 	preview.miniature = true
@@ -319,15 +326,18 @@ func refresh_planning() -> void:
 	clear_children(planning_detail)
 	label(planning_detail, "%d SCRAP" % game.scrap, 26, Color("f1c784"))
 	label(planning_detail, "Next event: " + (game.upcoming_event(game.wave + 1) if game.upcoming_event(game.wave + 1) != "" else "Standard assault"), 16)
+	var faction = game.Rules.faction(game.stats, game.wave + 1, game.adaptive_run)
+	if faction != "None": label(planning_detail, faction + " / " + game.Rules.faction_detail(faction), 15, Color("dbb087"))
 	for event in game.world.map.events:
 		if event.id not in game.world.applied: label(planning_detail, "After wave %d: %s" % [event.round, event.message], 14, Color("8ca6b4"))
 	if selected_key != "" and game.world.construction.has(selected_key):
 		var item = game.world.construction[selected_key]
 		label(planning_detail, item.name + " · L%d" % item.level, 22)
 		label(planning_detail, "HP %d / %d\nDamage %.0f · Range %.1fm\n%s" % [item.health, item.max_health, item.damage, item.range, item.branch], 17)
-		button(planning_detail, "Repair · %d scrap" % int(ceil((item.max_health - item.health) * 0.15)), func(): manage("repair"), game.mode == "challenge")
-		button(planning_detail, "Upgrade: %s · %d" % ["Precision" if item.kind == "tower" else "Reinforce", int(item.cost * game.catalog.structure_upgrades.power.cost * item.level)], func(): manage("power"), item.level >= 4 or item.get("branch_id", "") == "rapid")
-		button(planning_detail, "Upgrade: Gatling · %d" % int(item.cost * game.catalog.structure_upgrades.rapid.cost * item.level), func(): manage("rapid"), item.level >= 4 or item.kind != "tower" or item.get("branch_id", "") == "power")
+		button(planning_detail, "Repair · %d scrap" % int(ceil((item.max_health - item.health) * 0.15 * (1 - game.bonus("repair_efficiency")))), func(): manage("repair"), game.mode == "challenge")
+		button(planning_detail, "Upgrade: %s · %d" % ["Precision" if item.kind == "tower" else "Reinforce", int(item.cost * game.catalog.structure_upgrades.power.cost * item.level)], func(): manage("power"), item.level >= 4 or item.get("branch_id", "") not in ["", "power"])
+		button(planning_detail, "Upgrade: Gatling · %d" % int(item.cost * game.catalog.structure_upgrades.rapid.cost * item.level), func(): manage("rapid"), item.level >= 4 or item.kind != "tower" or item.get("branch_id", "") not in ["", "rapid"])
+		if game.perk("tower_evolution") > 0 and item.kind == "tower": button(planning_detail, "Upgrade: Resonant · %d" % int(item.cost * 0.85 * item.level), func(): manage("resonant"), item.level >= 4 or item.get("branch_id", "") not in ["", "resonant"])
 		button(planning_detail, "Target: " + game.TARGET_MODES[int(item.target_mode)], func(): manage("target"), item.kind != "tower")
 		button(planning_detail, "Sell · 65% of remaining value", func(): manage("sell"))
 		button(planning_detail, "Demolish", func(): manage("demolish"))
@@ -409,6 +419,8 @@ func show_research() -> void:
 	for branch in branches: picker.add_item(branch)
 	picker.selected = branches.find(research_branch)
 	controls.add_child(picker)
+	button(controls, "Ascension", show_ascension)
+	if game.profile.data.settings.get("respec_enabled", true): button(controls, "Respec · 90% TP refund", confirm_respec, game.read_run_checkpoint() != null or game.profile.data.research.is_empty())
 	var graph = GraphEdit.new()
 	graph.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	graph.show_arrange_button = false
@@ -448,7 +460,7 @@ func show_research() -> void:
 				graph.add_child(graph_node)
 				var col = column(graph_node, 8)
 				col.custom_minimum_size.x = 250
-				label(col, branch.to_upper(), 14, Color("7dd7c6"))
+				label(col, "%s / %s / TIER %d" % [node.get("icon", ""), branch.to_upper(), node.get("tier", 1)], 14, Color("7dd7c6"))
 				label(col, node.description, 15, Color("9fb6c1"))
 				label(col, "Rank %d / %d" % [rank_value, node.max_rank], 15, color)
 				var available = rank_value < node.max_rank
@@ -473,6 +485,19 @@ func show_research() -> void:
 	picker.item_selected.connect(func(index): research_branch = branches[index]; populate.call())
 	populate.call()
 
+func confirm_respec() -> void:
+	var dialog = ConfirmationDialog.new()
+	dialog.title = "Reset ordinary research?"
+	dialog.dialog_text = "Reset all ordinary research and receive %d TP (90%% of invested points). Loadouts return to basic weapons. Ascension purchases remain." % int(game.profile.invested_tp(game.catalog.technologies) * 0.9)
+	dialog.confirmed.connect(func():
+		var error = game.respec()
+		notify(error if error != "" else "Research reset and points refunded.")
+		show_research()
+		dialog.queue_free())
+	dialog.canceled.connect(func(): dialog.queue_free())
+	root.add_child(dialog)
+	dialog.popup_centered()
+
 func confirm_research(node: Dictionary) -> void:
 	var dialog = ConfirmationDialog.new()
 	dialog.title = "Research " + node.name
@@ -496,6 +521,50 @@ func show_loadout() -> void:
 		var text = label(line, "%s · %d damage · %d magazine" % [definition.name, definition.damage, definition.magazine], 20)
 		text.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		button(line, "Selected" if game.profile.data.loadout == id else ("Select" if unlocked else "Research required"), func(): game.profile.data.loadout = id; game.profile.save(); show_loadout(), not unlocked)
+		if game.profile.perk("dual_loadout") > 0: button(line, "Secondary selected" if game.profile.data.secondary_loadout == id else "Secondary", func(): game.profile.data.secondary_loadout = id; game.profile.save(); show_loadout(), not unlocked)
+
+func show_ascension() -> void:
+	overlay = "ascension"
+	var body = page("ASCENSION / %d CORES" % game.profile.data.cores, "Optional prestige. Lifetime records, achievements, settings, and Ascension purchases are preserved.")
+	var scroll = ScrollContainer.new()
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	body.add_child(scroll)
+	var list = column(scroll, 16)
+	list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var reward = game.profile.ascension_reward(game.catalog.technologies)
+	label(list, "Ascensions %d · Wave record %d · Technologies %d / 120" % [game.profile.data.ascensions, game.profile.data.best, game.profile.data.research.size()], 21)
+	label(list, "Requires wave 25 and 20 researched technologies. Ascending resets all ordinary research and TP, and restores the basic loadout. Core reward depends on invested and unspent TP.", 17, Color("a1b7c1"))
+	button(list, "Ascend · reset research for %d cores" % reward, confirm_ascension, reward == 0 or game.read_run_checkpoint() != null)
+	if game.read_run_checkpoint() != null: label(list, "Finish or abandon the saved run before ascending.", 16)
+	for id in game.profile.ASCENSION_PERKS:
+		var perk = game.profile.ASCENSION_PERKS[id]
+		var rank_value = game.profile.perk(id)
+		label(list, "%s · rank %d / %d" % [perk.name, rank_value, perk.max_rank], 21, Color("8ed8ce"))
+		label(list, perk.description, 17, Color("a1b7c1"))
+		button(list, "Researched" if rank_value >= perk.max_rank else "Research · %d cores" % (rank_value + 1), func():
+			var error = game.profile.purchase_perk(id)
+			notify(error if error != "" else "Ascension research purchased.")
+			show_ascension(), rank_value >= perk.max_rank or game.profile.data.cores < rank_value + 1)
+	if game.profile.perk("mutation") > 0:
+		var picker = OptionButton.new()
+		var ids = ["vitality", "overclock", "salvage"]
+		for text in ["Vitality · +20 health per rank", "Overclock · +8% fire rate per rank", "Salvage · +60 starting scrap per rank"]: picker.add_item(text)
+		picker.selected = ids.find(game.profile.data.mutation)
+		picker.item_selected.connect(func(index): game.profile.data.mutation = ids[index]; game.profile.save())
+		list.add_child(picker)
+
+func confirm_ascension() -> void:
+	var dialog = ConfirmationDialog.new()
+	dialog.title = "Ascend and reset ordinary research?"
+	dialog.dialog_text = "All ordinary research and Technology Points will reset. Receive %d Ascension Cores. This is optional and cannot be undone." % game.profile.ascension_reward(game.catalog.technologies)
+	dialog.confirmed.connect(func():
+		var error = game.ascend()
+		notify(error if error != "" else "Ascension complete. Spend cores or begin rebuilding your research.")
+		show_ascension()
+		dialog.queue_free())
+	dialog.canceled.connect(func(): dialog.queue_free())
+	root.add_child(dialog)
+	dialog.popup_centered()
 
 func show_inventory() -> void:
 	if overlay != "inventory": notice_time = 0
@@ -582,7 +651,7 @@ func show_shop() -> void:
 	button(top, "Close", close_overlay)
 	label(body, "Supply is available between waves.", 18)
 	for pair in [["ammo", "Ammunition · refill reserves"], ["medkit", "Medkit · restore 50 health"], ["grenade", "Grenade · 120 area damage"], ["core", "Core service · restore 120 HP"]]:
-		button(body, pair[1] + " · 35 scrap", func(): game.buy(pair[0]), game.scrap < 35 or (pair[0] == "core" and game.mode == "challenge"))
+		button(body, pair[1] + " · %d scrap" % game.supply_cost(pair[0]), func(): game.buy(pair[0]), game.scrap < game.supply_cost(pair[0]) or (pair[0] == "core" and not game.repairs_allowed()))
 	label(body, "WEAPONS / COMMON", 17, Color("78d6c5"))
 	var table = GridContainer.new()
 	table.columns = 3
@@ -591,7 +660,7 @@ func show_shop() -> void:
 	body.add_child(table)
 	for id in game.catalog.weapons:
 		var definition = game.catalog.weapons[id]
-		button(table, definition.name + " · 80", func(): game.buy(id), not game.unlocked(definition) or game.scrap < 80)
+		button(table, definition.name + " · %d" % game.supply_cost(id), func(): game.buy(id), not game.unlocked(definition) or game.scrap < game.supply_cost(id))
 
 func show_pause() -> void:
 	overlay = "pause"
@@ -624,7 +693,7 @@ func show_results() -> void:
 	var body = column(backdrop())
 	spacer(body)
 	label(body, game.defeat_reason.to_upper(), 42, Color("f0a17f"))
-	label(body, "WAVE %d / %d CLEARED / %02d:%02d" % [game.wave, game.completed, int(game.elapsed) / 60, int(game.elapsed) % 60], 25)
+	label(body, "WAVE %d / %d CLEARED / %02d:%02d" % [game.wave, game.stats.get("cleared", game.completed), int(game.elapsed) / 60, int(game.elapsed) % 60], 25)
 	var s = game.stats
 	label(body, "Enemies %d   ·   Bosses %d   ·   Best streak %d\nDamage %.0f   ·   Weapons %.0f   ·   Towers %.0f\nStructures %d   ·   Scrap earned %d   ·   Spent %d" % [s.kills, s.bosses, s.streak, s.damage, s.weapon_damage, s.tower_damage, s.built, s.earned, s.spent], 21)
 	if s.get("ability_damage", 0) > 0: label(body, "Pulse damage %.0f" % s.ability_damage, 18)
@@ -741,7 +810,7 @@ func show_settings() -> void:
 		spin.value = settings[entry[0]]
 		spin.value_changed.connect(func(value): settings[entry[0]] = value; game.apply_settings())
 		line.add_child(spin)
-	for entry in [["fullscreen", "Fullscreen"], ["vsync", "VSync"], ["crosshair", "Crosshair"], ["shake", "Camera recoil"]]:
+	for entry in [["fullscreen", "Fullscreen"], ["vsync", "VSync"], ["crosshair", "Crosshair"], ["shake", "Camera recoil"], ["adaptive", "Adaptive factions for new runs"], ["weather", "Weather visuals"], ["camera_motion", "Head bob, landing feedback and weapon sway"], ["stamina", "Sprint stamina"]]:
 		var check = CheckButton.new()
 		check.text = entry[1]
 		check.button_pressed = settings[entry[0]]
@@ -753,6 +822,17 @@ func show_settings() -> void:
 	quality.selected = int(settings.quality)
 	quality.item_selected.connect(func(index): settings.quality = index; game.apply_settings())
 	settings_col.add_child(quality)
+	var display = OptionButton.new()
+	for text in ["Standard rendering", "Retro · pixelated scene", "High contrast scene"]: display.add_item(text)
+	display.selected = int(settings.visual_mode)
+	display.item_selected.connect(func(index): settings.visual_mode = index; game.apply_settings())
+	settings_col.add_child(display)
+	if RenderingServer.get_current_rendering_method() == "forward_plus":
+		var advanced = CheckButton.new()
+		advanced.text = "Reflections, ambient occlusion and volumetric lighting"
+		advanced.button_pressed = settings.advanced_lighting
+		advanced.toggled.connect(func(value): settings.advanced_lighting = value; game.apply_settings())
+		settings_col.add_child(advanced)
 	var resolutions = OptionButton.new()
 	for resolution in ["1280 × 800", "1440 × 900", "1920 × 1080"]: resolutions.add_item(resolution)
 	resolutions.selected = int(settings.resolution)
@@ -762,7 +842,7 @@ func show_settings() -> void:
 	var key_col = column(content)
 	key_col.custom_minimum_size.x = 450
 	label(key_col, "KEYBINDINGS", 19, Color("7bd7c3"))
-	for action in ["forward", "back", "left", "right", "jump", "sprint", "crouch", "reload", "interact", "ability", "inventory", "planning", "next_wave", "weapon1", "weapon2", "heal", "grenade", "pause"]:
+	for action in ["forward", "back", "left", "right", "jump", "sprint", "crouch", "reload", "interact", "ability", "restoration", "inventory", "planning", "next_wave", "weapon1", "weapon2", "heal", "grenade", "pause"]:
 		var events = InputMap.action_get_events(action)
 		var key = events[0].as_text_physical_keycode() if not events.is_empty() else "Unbound"
 		button(key_col, action.replace("_", " ").capitalize() + " : " + key, func(): rebind_action = action; notify("Press a key for " + action + ". Escape cancels."))
@@ -811,7 +891,10 @@ func _process(delta: float) -> void:
 				break
 		var phase = "PREPARATION" if game.state == "preparation" else game.state.to_upper()
 		hud_top.text = "WAVE %02d / %s\nCORE %d / %d   ·   %d SCRAP\nHOSTILES %d + %d INBOUND" % [game.wave, phase, game.core_health, game.max_core, game.scrap, game.enemies.size(), game.spawn_queue.size()]
+		if game.core_shield > 0: hud_top.text += " · CORE SHIELD %d" % game.core_shield
 		hud_left.text = "HEALTH  %d / %d\nSHIELD  %d\nPULSE  %s" % [game.health, game.max_health, game.shield, "READY [%s]" % key_name("ability") if game.ability_timer <= 0 else "%.1fs" % game.ability_timer]
+		if game.perk("pulse_matrix") > 0: hud_left.text += "\nRESTORE %s" % ("READY [%s]" % key_name("restoration") if game.restoration_timer <= 0 else "%.1fs" % game.restoration_timer)
+		if game.profile.data.settings.stamina: hud_left.text += "\nSTAMINA %d" % game.player.stamina
 		if not game.weapons.is_empty():
 			var weapon = game.weapons[game.active_weapon]
 			hud_right.text = "%s\n%d / %d%s\nLV %d · XP %d / %d" % [game.item_name(weapon).to_upper(), weapon.ammo, weapon.reserve, " · RELOADING" if game.reload_timer > 0 else "", game.level, game.xp, game.next_xp]
@@ -841,4 +924,6 @@ func _process(delta: float) -> void:
 		for item in game.world.construction.values():
 			if item.kind == "tower": tower_count += 1
 		var memory = OS.get_static_memory_usage()
+		var rendering = game.render_times()
 		debug_label.text = "%d FPS / %.2f ms avg frame / %.2f ms sim\nEnemies %d/%d · Projectiles %d\nTowers %d · Structures %d · Queue %d\nNavigation %.3f ms · Memory %s\nDraw calls %d" % [fps, 1000.0 / maxf(1, fps), game.simulation_ms, game.enemies.size(), game.active_cap, game.projectiles.size(), tower_count, game.world.construction.size(), game.spawn_queue.size(), game.world.nav_ms, "%.1f MB" % (memory / 1048576.0) if memory > 0 else "unavailable", RenderingServer.get_rendering_info(RenderingServer.RENDERING_INFO_TOTAL_DRAW_CALLS_IN_FRAME)]
+		debug_label.text += "\nRender CPU %.2f ms · GPU %s" % [rendering.cpu_ms, "%.2f ms" % rendering.gpu_ms if rendering.gpu_ms > 0 else "unavailable"]

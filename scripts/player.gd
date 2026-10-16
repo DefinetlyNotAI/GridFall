@@ -9,6 +9,11 @@ var grounded = true
 var steps = 0.0
 var body_shape: CollisionShape3D
 var crouched = false
+var stamina = 100.0
+var sprint_exhausted = false
+var landing = 0.0
+var motion_time = 0.0
+var sway = Vector2.ZERO
 
 func setup(owner_game) -> void:
 	game = owner_game
@@ -64,6 +69,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		var sensitivity = float(game.profile.data.settings.sensitivity)
 		rotate_y(-event.relative.x * sensitivity)
 		pitch = clampf(pitch - event.relative.y * sensitivity, -1.5, 1.5)
+		if game.profile.data.settings.camera_motion: sway = (sway + event.relative * 0.00015).limit_length(0.015)
 	if event.is_action_pressed("reload"):
 		game.reload_weapon()
 	if event.is_action_pressed("weapon1"):
@@ -74,6 +80,8 @@ func _unhandled_input(event: InputEvent) -> void:
 		game.interact()
 	if event.is_action_pressed("ability"):
 		game.ability()
+	if event.is_action_pressed("restoration"):
+		game.restoration()
 	if event is InputEventMouseButton and event.pressed:
 		if event.button_index in [MOUSE_BUTTON_WHEEL_UP, MOUSE_BUTTON_WHEEL_DOWN]:
 			game.switch_weapon(1 - game.active_weapon)
@@ -85,8 +93,13 @@ func _physics_process(delta: float) -> void:
 	var move = Input.get_vector("left", "right", "forward", "back") if enabled else Vector2.ZERO
 	var direction = (transform.basis * Vector3(move.x, 0, move.y)).normalized()
 	var speed = 6.5
-	if enabled and Input.is_action_pressed("sprint"):
+	if stamina <= 5: sprint_exhausted = true
+	elif stamina >= 25: sprint_exhausted = false
+	var sprinting = enabled and Input.is_action_pressed("sprint") and move.length() > 0 and (not game.profile.data.settings.stamina or not sprint_exhausted)
+	if sprinting:
 		speed = 10
+	if game.profile.data.settings.stamina:
+		stamina = clampf(stamina + delta * (-18 if sprinting else 22), 0, 100)
 	var crouch = enabled and Input.is_action_pressed("crouch")
 	if crouched and not crouch:
 		crouch = not game.ray(global_position + Vector3.UP * 1.05, global_position + Vector3.UP * 1.85, 1).is_empty()
@@ -96,6 +109,7 @@ func _physics_process(delta: float) -> void:
 		body_shape.position.y = 0.55 if crouched else 0.9
 	if crouch:
 		speed = 3.4
+	speed *= 1 + game.bonus("movement")
 	var tile_key = game.world.cell_key(game.world.cell(position))
 	if game.world.map.layers.ground.get(tile_key, {}).get("type") == "water" or game.world.map.layers.objects.get(tile_key, {}).get("type") == "slow":
 		speed *= 0.5
@@ -105,7 +119,10 @@ func _physics_process(delta: float) -> void:
 		velocity.y -= 22 * delta
 	elif enabled and Input.is_action_just_pressed("jump"):
 		velocity.y = 8
+	var was_grounded = is_on_floor()
+	var fall_speed = velocity.y
 	move_and_slide()
+	if not was_grounded and is_on_floor() and fall_speed < -5: landing = minf(0.08, -fall_speed * 0.003)
 	if position.y < -20:
 		if game.state == "wave": game.damage_player(1000000)
 		else:
@@ -113,11 +130,16 @@ func _physics_process(delta: float) -> void:
 			velocity = Vector3.ZERO
 			game.ui.notify("Returned to spawn after falling outside the world.")
 	camera.position.y = lerpf(camera.position.y, 1.0 if crouch else 1.65, 12 * delta)
+	landing = move_toward(landing, 0, delta * 0.3)
+	if game.profile.data.settings.camera_motion:
+		motion_time += delta * (14 if sprinting else 9) * move.length()
+		camera.position.y += (sin(motion_time) * 0.003 if is_on_floor() else 0) - landing * delta * 5
 	var aiming = enabled and Input.is_action_pressed("aim")
 	camera.fov = lerpf(camera.fov, float(game.profile.data.settings.fov) * (0.75 if aiming else 1.0), 12 * delta)
 	recoil = move_toward(recoil, 0, delta * 0.25)
 	camera.rotation.x = pitch + recoil
-	gun.position = gun.position.lerp(Vector3(0.08 if aiming else 0.3, -0.22 if aiming else -0.28, -0.55 + recoil), delta * 12)
+	sway = sway.lerp(Vector2.ZERO, delta * 10)
+	gun.position = gun.position.lerp(Vector3((0.08 if aiming else 0.3) + sway.x, (-0.22 if aiming else -0.28) - sway.y, -0.55 + recoil), delta * 12)
 	if enabled and Input.is_action_pressed("shoot") and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
 		game.fire()
 	steps += direction.length() * delta

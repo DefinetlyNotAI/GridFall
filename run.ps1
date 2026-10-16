@@ -2,6 +2,7 @@ param(
     [switch]$Editor,
     [switch]$Benchmark,
     [switch]$Export,
+    [switch]$ForwardPlus,
     [Parameter(ValueFromRemainingArguments = $true)]
     [string[]]$GameArgs
 )
@@ -27,6 +28,7 @@ if ($Export -or $Benchmark) {
     if (Test-Path -LiteralPath $consoleEngine) { $engine = $consoleEngine }
 }
 $launchArgs = @('--path', $PSScriptRoot)
+if ($ForwardPlus) { $launchArgs += @('--rendering-method', 'forward_plus') }
 if ($Export) {
     $buildDir = Join-Path $PSScriptRoot 'build'
     New-Item -ItemType Directory -Force -Path $buildDir | Out-Null

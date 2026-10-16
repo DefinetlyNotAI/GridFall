@@ -54,7 +54,12 @@ func preset(index: int = 0, seed_value: int = 104729) -> Dictionary:
 		for x in width:
 			var p = Vector2i(x, y)
 			var key = cell_key(p)
-			layers.ground[key] = {"type": "road" if x == 12 or y == 12 else ("metal" if index == 1 else "concrete"), "rotation": 0}
+			var terrain = "road" if x == 12 or y == 12 else "concrete"
+			if index == 1:
+				terrain = "road" if x == 12 or y == 12 else "metal"
+			elif index == 2:
+				terrain = "road" if x == 12 or y == 12 else ("grass" if (x + y) % 3 != 0 else "dirt")
+			layers.ground[key] = {"type": terrain, "rotation": 0}
 			if x == 0 or y == 0 or x == width - 1 or y == height - 1:
 				layers.structure[key] = {"type": "permanent", "health": 0, "height": 3.5}
 			elif x > 2 and y > 2 and x < 22 and y < 22 and p.distance_to(Vector2i(12, 12)) > 2 and x != 12 and y != 12:
@@ -73,6 +78,13 @@ func preset(index: int = 0, seed_value: int = 104729) -> Dictionary:
 				var key = cell_key(Vector2i(x, y))
 				layers.structure[key] = {"type": "permanent", "height": 2.8, "health": 0}
 				build.erase(key)
+	elif index == 2:
+		for x in [4, 20]:
+			for y in range(5, 20):
+				if y in [11, 12, 13]: continue
+				var key = cell_key(Vector2i(x, y))
+				layers.structure[key] = {"type": "permanent", "height": 2.8, "health": 0}
+				build.erase(key)
 	layers.markers["12,14"] = {"type": "player"}
 	layers.markers["12,12"] = {"type": "objective"}
 	layers.markers["12,1"] = {"type": "enemy"}
@@ -83,7 +95,114 @@ func preset(index: int = 0, seed_value: int = 104729) -> Dictionary:
 	for key in ["11,14", "13,14", "3,11", "3,13", "21,11", "21,13"]: build.erase(key)
 	layers.structure["2,12"] = {"type": "gate", "height": 3.0, "health": 0, "locked": true}
 	layers.structure["22,12"] = {"type": "gate", "height": 3.0, "health": 0, "locked": true}
-	return {"version": 1, "id": "foundry" if index == 0 else "relay", "name": "The Foundry" if index == 0 else "Relay Station", "description": "An industrial crossroad. West opens after wave 4; east after wave 8.", "author": "GRIDFALL", "width": width, "height": height, "seed": seed_value, "theme": index, "layers": layers, "build": build, "events": [{"id": "west", "round": 4, "remove": ["2,12"], "build": ["3,11", "3,13"], "message": "West gate opened. A second approach is active."}, {"id": "east", "round": 8, "remove": ["22,12"], "build": ["21,11", "21,13"], "message": "East gate opened. Defend all three approaches."}]}
+	var names = ["The Foundry", "Relay Station", "Crossroads"]
+	var descriptions = [
+		"An industrial crossroad. West opens after wave 4; east after wave 8.",
+		"A fortified relay station with gated side approaches.",
+		"A greenbelt split by open roads and low cover."
+	]
+	var ids = ["foundry", "relay", "crossroads"]
+	return {"version": 1, "id": ids[index % ids.size()], "name": names[index % names.size()], "description": descriptions[index % descriptions.size()], "author": "GRIDFALL", "width": width, "height": height, "seed": seed_value, "theme": index, "layers": layers, "build": build, "events": [{"id": "west", "round": 4, "remove": ["2,12"], "build": ["3,11", "3,13"], "message": "West gate opened. A second approach is active."}, {"id": "east", "round": 8, "remove": ["22,12"], "build": ["21,11", "21,13"], "message": "East gate opened. Defend all three approaches."}]}
+
+func generated(seed_value: int, width: int = 33, height: int = 33, style: int = 0) -> Dictionary:
+	var map_width = clampi(width, 8, 96)
+	var map_height = clampi(height, 8, 96)
+	var map_seed = clampi(seed_value, -2147483647, 2147483647)
+	var map_style = clampi(style, 0, 2)
+	var rng = RandomNumberGenerator.new()
+	rng.seed = map_seed
+	var layers = {"ground": {}, "structure": {}, "height": {}, "markers": {}, "objects": {}, "decoration": {}, "lighting": {}}
+	var center = Vector2i(map_width / 2, map_height / 2)
+	var candidates: Array[String] = []
+	var terrain_options: Array = [
+		["concrete", "grass", "dirt", "sand", "stone", "road"],
+		["metal", "concrete", "stone", "road"],
+		["grass", "dirt", "sand", "stone", "concrete"]
+	]
+	var cover_options: Array = [
+		["wood", "brick", "concrete_wall", "glass"],
+		["steel", "brick", "concrete_wall", "glass"],
+		["wood", "brick", "barricade", "glass"]
+	]
+	var hazard_options: Array = [
+		["spikes", "slow", "fire", "acid", "mine"],
+		["fire", "electric", "spikes", "mine"],
+		["acid", "slow", "spikes", "electric"]
+	]
+	var decoration_options: Array = [
+		["crate", "debris", "pipe", "machinery"],
+		["machinery", "pipe", "crate", "debris"],
+		["vegetation", "debris", "crate", "pipe"]
+	]
+	for y in range(map_height):
+		for x in range(map_width):
+			var p = Vector2i(x, y)
+			var key = cell_key(p)
+			var border = x == 0 or y == 0 or x == map_width - 1 or y == map_height - 1
+			var lane = x == center.x or y == center.y
+			var terrain = "road" if lane else terrain_options[map_style][rng.randi_range(0, terrain_options[map_style].size() - 1)]
+			if map_style == 1 and lane:
+				terrain = "metal"
+			layers.ground[key] = {"type": terrain, "rotation": 0}
+			if border:
+				layers.structure[key] = {"type": "permanent", "health": 0, "height": 3.5}
+			elif not lane:
+				candidates.append(key)
+	for index in range(candidates.size() - 1, 0, -1):
+		var swap_index = rng.randi_range(0, index)
+		var saved = candidates[index]
+		candidates[index] = candidates[swap_index]
+		candidates[swap_index] = saved
+	if candidates.size() >= 3:
+		var cover_key: String = candidates[0]
+		var cover_type: String = cover_options[map_style][rng.randi_range(0, cover_options[map_style].size() - 1)]
+		var cover_definition: Dictionary = WALL_DEFS[cover_type]
+		layers.structure[cover_key] = {"type": cover_type, "height": cover_definition.height, "health": cover_definition.health, "max_health": cover_definition.health}
+		var guaranteed_hazards = ["spikes", "slow"] if map_style != 1 else ["fire", "electric"]
+		for index in guaranteed_hazards.size():
+			layers.objects[candidates[index + 1]] = {"type": guaranteed_hazards[index]}
+		var cover_chance = [0.07, 0.10, 0.045][map_style]
+		var hazard_chance = [0.035, 0.04, 0.035][map_style]
+		var decoration_chance = [0.035, 0.04, 0.06][map_style]
+		for index in range(3, candidates.size()):
+			var key: String = candidates[index]
+			var roll = rng.randf()
+			if roll < cover_chance:
+				cover_type = cover_options[map_style][rng.randi_range(0, cover_options[map_style].size() - 1)]
+				cover_definition = WALL_DEFS[cover_type]
+				layers.structure[key] = {"type": cover_type, "height": cover_definition.height, "health": cover_definition.health, "max_health": cover_definition.health}
+			elif roll < cover_chance + hazard_chance:
+				layers.objects[key] = {"type": hazard_options[map_style][rng.randi_range(0, hazard_options[map_style].size() - 1)]}
+			elif roll < cover_chance + hazard_chance + decoration_chance:
+				layers.decoration[key] = {"type": decoration_options[map_style][rng.randi_range(0, decoration_options[map_style].size() - 1)]}
+	var player = Vector2i(center.x, center.y + 1)
+	layers.markers[cell_key(player)] = {"type": "player"}
+	layers.markers[cell_key(center)] = {"type": "objective"}
+	var spawn_points = [Vector2i(center.x, 1), Vector2i(1, center.y), Vector2i(map_width - 2, center.y), Vector2i(center.x, map_height - 2)]
+	for spawn in spawn_points:
+		layers.markers[cell_key(spawn)] = {"type": "enemy"}
+	var build: Array[String] = []
+	for y in range(1, map_height - 1):
+		for x in range(1, map_width - 1):
+			var key = cell_key(Vector2i(x, y))
+			if layers.structure.has(key) or layers.objects.has(key) or layers.markers.has(key):
+				continue
+			build.append(key)
+	var style_names = ["Balanced", "Foundry", "Overgrown"]
+	return {
+		"version": 1,
+		"id": "custom_generated_%d_%d_%d_%d" % [map_seed, map_width, map_height, map_style],
+		"name": "Generated %s %d" % [style_names[map_style], map_seed],
+		"description": "Procedural %s layout, seed %d." % [style_names[map_style], map_seed],
+		"author": "Player",
+		"width": map_width,
+		"height": map_height,
+		"seed": map_seed,
+		"theme": map_style,
+		"layers": layers,
+		"build": build,
+		"events": []
+	}
 
 func load_map(value: Dictionary) -> void:
 	map = value.duplicate(true)

@@ -84,6 +84,9 @@ func show_editor() -> void:
 		check.toggled.connect(func(value): grid.visible_layers[layer_name] = value)
 		side.add_child(check)
 	ui.button(side, "Map metadata", metadata_dialog)
+	ui.button(side, "Generate map", generated_map_dialog)
+	ui.button(side, "Templates", templates_dialog)
+	ui.button(side, "Share / import code", share_dialog)
 	ui.button(side, "Validate", validate_map)
 	ui.label(side, "Inspect a tile to edit height, elevation, health, rotation, or construction permission.", 16, Color("93afbd"))
 	status = ui.label(side, "Full world authoring enabled.\nThis map cannot earn TP.", 16, Color("f0c58d"))
@@ -317,6 +320,192 @@ func new_map_dialog() -> void:
 	dialog.canceled.connect(func(): dialog.queue_free())
 	ui.root.add_child(dialog)
 	dialog.popup_centered(Vector2i(420, 360))
+
+func generated_map_dialog() -> void:
+	var dialog = ConfirmationDialog.new()
+	dialog.title = "Generate sandbox world"
+	dialog.wrap_controls = false
+	dialog.theme = ui.root.theme
+	var body = ui.column(dialog)
+	ui.label(body, "Create a seeded layout. The current map can be restored with Undo.", 16)
+	var seed_input = SpinBox.new()
+	seed_input.min_value = -2147483647
+	seed_input.max_value = 2147483647
+	seed_input.step = 1
+	seed_input.rounded = true
+	seed_input.value = int(game.world.map.get("seed", 104729))
+	ui.label(body, "Seed")
+	body.add_child(seed_input)
+	var width_input = SpinBox.new()
+	width_input.min_value = 8
+	width_input.max_value = 96
+	width_input.step = 1
+	width_input.rounded = true
+	width_input.value = 33
+	ui.label(body, "Width")
+	body.add_child(width_input)
+	var height_input = SpinBox.new()
+	height_input.min_value = 8
+	height_input.max_value = 96
+	height_input.step = 1
+	height_input.rounded = true
+	height_input.value = 33
+	ui.label(body, "Height")
+	body.add_child(height_input)
+	ui.label(body, "Style")
+	var style_picker = OptionButton.new()
+	for style_name in ["Balanced", "Foundry", "Overgrown"]:
+		style_picker.add_item(style_name)
+	style_picker.selected = int(game.world.map.get("theme", 0)) % 3
+	body.add_child(style_picker)
+	dialog.confirmed.connect(func():
+		var value = game.world.generated(int(seed_input.value), int(width_input.value), int(height_input.value), style_picker.selected)
+		checkpoint()
+		game.world.load_map(value)
+		authoring = value.duplicate(true)
+		path = ""
+		show_editor()
+		dialog.queue_free())
+	dialog.canceled.connect(func(): dialog.queue_free())
+	ui.root.add_child(dialog)
+	dialog.popup_centered(Vector2i(480, 450))
+
+func templates_dialog() -> void:
+	var dialog = ConfirmationDialog.new()
+	dialog.title = "World templates"
+	dialog.wrap_controls = false
+	dialog.theme = ui.root.theme
+	var body = ui.column(dialog)
+	ui.label(body, "Choose a starter world. The current map can be restored with Undo.", 16)
+	var picker = OptionButton.new()
+	for template_name in ["The Foundry", "Relay Station", "Crossroads"]:
+		picker.add_item(template_name)
+	body.add_child(picker)
+	var descriptions = [
+		"Three approaches around a central objective, with gates that open over time.",
+		"Fortified lanes shape the first approaches and leave a central route open.",
+		"A greenbelt layout with open road axes and protected side lanes."
+	]
+	var description = ui.label(body, descriptions[0], 16, Color("93afbd"))
+	picker.item_selected.connect(func(index): description.text = descriptions[index])
+	dialog.confirmed.connect(func():
+		var value = game.world.preset(picker.selected)
+		value.id = "custom_template_%s" % ["foundry", "relay", "crossroads"][picker.selected]
+		checkpoint()
+		game.world.load_map(value)
+		authoring = value.duplicate(true)
+		path = ""
+		show_editor()
+		dialog.queue_free())
+	dialog.canceled.connect(func(): dialog.queue_free())
+	ui.root.add_child(dialog)
+	dialog.popup_centered(Vector2i(520, 260))
+
+func _share_code_text() -> String:
+	var issues = game.world.validate(game.world.map, true)
+	if not issues.is_empty():
+		set_status("Cannot share: " + "; ".join(issues.slice(0, 8)))
+		return ""
+	var json_text = JSON.stringify(game.world.map)
+	var bytes = json_text.to_utf8_buffer()
+	if bytes.size() > 8 * 1024 * 1024:
+		set_status("Map exceeds the 8 MB share limit.")
+		return ""
+	var compressed = bytes.compress(FileAccess.COMPRESSION_DEFLATE)
+	if compressed.is_empty():
+		set_status("Could not compress this map.")
+		return ""
+	return "GRIDFALL1:" + Marshalls.raw_to_base64(compressed)
+
+func share_code() -> String:
+	var code = _share_code_text()
+	if code.is_empty():
+		return ""
+	DisplayServer.clipboard_set(code)
+	set_status("Share code copied to clipboard.")
+	return code
+
+func _stable_custom_id(source_id: String, value: Dictionary) -> String:
+	if source_id.begins_with("custom_"):
+		return source_id.left(120)
+	var fingerprint = int(JSON.stringify(value).hash()) & 0xffffffff
+	return "custom_shared_%08x" % fingerprint
+
+func import_code(code: String) -> String:
+	var normalized = code.strip_edges()
+	var prefix = "GRIDFALL1:"
+	if not normalized.begins_with(prefix):
+		return "Code must start with GRIDFALL1:."
+	var encoded = normalized.substr(prefix.length())
+	if encoded.is_empty() or encoded.length() > 12 * 1024 * 1024 or encoded.length() % 4 != 0:
+		return "Share code has an invalid size."
+	var base64_pattern = RegEx.new()
+	base64_pattern.compile("^[A-Za-z0-9+/]+={0,2}$")
+	if base64_pattern.search(encoded) == null:
+		return "Share code contains invalid base64 text."
+	var compressed = Marshalls.base64_to_raw(encoded)
+	if compressed.is_empty():
+		return "Share code could not be decoded."
+	var bytes = compressed.decompress_dynamic(8 * 1024 * 1024, FileAccess.COMPRESSION_DEFLATE)
+	if bytes.is_empty():
+		return "Share code is invalid or exceeds the 8 MB import limit."
+	var value = JSON.parse_string(bytes.get_string_from_utf8())
+	if not value is Dictionary:
+		return "Share code does not contain a world map."
+	var issues = game.world.validate(value, true)
+	if not issues.is_empty():
+		return "Import rejected: " + "; ".join(issues.slice(0, 8))
+	var imported: Dictionary = value.duplicate(true)
+	imported.id = _stable_custom_id(str(imported.id), imported)
+	if not imported.get("author", "") is String or str(imported.get("author", "")).strip_edges().is_empty():
+		imported.author = "Community"
+	checkpoint()
+	game.world.load_map(imported)
+	authoring = imported.duplicate(true)
+	path = ""
+	show_editor()
+	set_status("Imported shared world: %s" % imported.name)
+	return ""
+
+func share_dialog() -> void:
+	var dialog = ConfirmationDialog.new()
+	dialog.title = "Community share code"
+	dialog.wrap_controls = false
+	dialog.theme = ui.root.theme
+	var body = ui.column(dialog)
+	ui.label(body, "Map: %s\nAuthor: %s" % [game.world.map.get("name", "Untitled world"), game.world.map.get("author", "Unknown")], 16, Color("93afbd"))
+	ui.label(body, "Export code")
+	var export_input = TextEdit.new()
+	export_input.custom_minimum_size = Vector2(0, 105)
+	export_input.editable = false
+	export_input.text = _share_code_text()
+	body.add_child(export_input)
+	ui.label(body, "Paste a code to import")
+	var import_input = TextEdit.new()
+	import_input.custom_minimum_size = Vector2(0, 105)
+	body.add_child(import_input)
+	var result = ui.label(body, "Codes contain the full playable map and can be shared as text.", 15, Color("93afbd"))
+	dialog.get_ok_button().text = "Copy export"
+	dialog.add_button("Import code", true, "import_code")
+	dialog.confirmed.connect(func():
+		var code = share_code()
+		if not code.is_empty():
+			export_input.text = code
+			result.text = "Share code copied to clipboard."
+		else:
+			result.text = "Map is not ready to share. Check the editor status."
+	)
+	dialog.custom_action.connect(func(action):
+		if action != "import_code": return
+		var error = import_code(import_input.text)
+		if error.is_empty():
+			dialog.queue_free()
+		else:
+			result.text = error
+	)
+	dialog.canceled.connect(func(): dialog.queue_free())
+	ui.root.add_child(dialog)
+	dialog.popup_centered(Vector2i(650, 530))
 
 func validate_map() -> bool:
 	var issues = game.world.validate(game.world.map)

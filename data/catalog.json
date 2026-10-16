@@ -488,7 +488,14 @@
       "max_rank": 1,
       "requires": [],
       "effect": "weapon",
-      "value": "smg"
+      "value": "smg",
+      "tier": 1,
+      "icon": "BA",
+      "unlock_conditions": {},
+      "position": [
+        0,
+        0
+      ]
     },
     {
       "id": "ballistics_shotgun",
@@ -501,7 +508,14 @@
         "ballistics_smg"
       ],
       "effect": "weapon",
-      "value": "shotgun"
+      "value": "shotgun",
+      "tier": 1,
+      "icon": "BA",
+      "unlock_conditions": {},
+      "position": [
+        0,
+        255
+      ]
     },
     {
       "id": "ballistics_sniper",
@@ -514,7 +528,14 @@
         "ballistics_shotgun"
       ],
       "effect": "weapon",
-      "value": "sniper"
+      "value": "sniper",
+      "tier": 1,
+      "icon": "BA",
+      "unlock_conditions": {},
+      "position": [
+        0,
+        510
+      ]
     },
     {
       "id": "ballistics_rail",
@@ -527,7 +548,14 @@
         "ballistics_sniper"
       ],
       "effect": "structure",
-      "value": "rail"
+      "value": "rail",
+      "tier": 1,
+      "icon": "BA",
+      "unlock_conditions": {},
+      "position": [
+        0,
+        765
+      ]
     },
     {
       "id": "engineering_rocket",
@@ -538,7 +566,14 @@
       "max_rank": 1,
       "requires": [],
       "effect": "weapon",
-      "value": "rocket"
+      "value": "rocket",
+      "tier": 1,
+      "icon": "EN",
+      "unlock_conditions": {},
+      "position": [
+        310,
+        0
+      ]
     },
     {
       "id": "engineering_rocket_turret",
@@ -551,7 +586,14 @@
         "engineering_rocket"
       ],
       "effect": "structure",
-      "value": "rocket"
+      "value": "rocket",
+      "tier": 1,
+      "icon": "EN",
+      "unlock_conditions": {},
+      "position": [
+        310,
+        255
+      ]
     },
     {
       "id": "engineering_mortar",
@@ -564,7 +606,14 @@
         "engineering_rocket_turret"
       ],
       "effect": "structure",
-      "value": "mortar"
+      "value": "mortar",
+      "tier": 1,
+      "icon": "EN",
+      "unlock_conditions": {},
+      "position": [
+        310,
+        510
+      ]
     },
     {
       "id": "engineering_mine",
@@ -577,7 +626,14 @@
         "engineering_rocket"
       ],
       "effect": "structure",
-      "value": "mine"
+      "value": "mine",
+      "tier": 1,
+      "icon": "EN",
+      "unlock_conditions": {},
+      "position": [
+        310,
+        765
+      ]
     },
     {
       "id": "fortification_spikes",
@@ -588,7 +644,14 @@
       "max_rank": 1,
       "requires": [],
       "effect": "structure",
-      "value": "spikes"
+      "value": "spikes",
+      "tier": 1,
+      "icon": "FO",
+      "unlock_conditions": {},
+      "position": [
+        620,
+        0
+      ]
     },
     {
       "id": "fortification_shield",
@@ -601,7 +664,14 @@
         "fortification_spikes"
       ],
       "effect": "structure",
-      "value": "shield"
+      "value": "shield",
+      "tier": 1,
+      "icon": "FO",
+      "unlock_conditions": {},
+      "position": [
+        620,
+        255
+      ]
     },
     {
       "id": "fortification_capacity",
@@ -614,7 +684,14 @@
         "fortification_spikes"
       ],
       "effect": "capacity",
-      "value": 2
+      "value": 2,
+      "tier": 1,
+      "icon": "FO",
+      "unlock_conditions": {},
+      "position": [
+        620,
+        510
+      ]
     },
     {
       "id": "fortification_armor",
@@ -627,7 +704,14 @@
         "fortification_shield"
       ],
       "effect": "armor",
-      "value": 0.05
+      "value": 0.05,
+      "tier": 1,
+      "icon": "FO",
+      "unlock_conditions": {},
+      "position": [
+        620,
+        765
+      ]
     },
     {
       "id": "biotechnology_blade",
@@ -638,7 +722,14 @@
       "max_rank": 1,
       "requires": [],
       "effect": "weapon",
-      "value": "blade"
+      "value": "blade",
+      "tier": 1,
+      "icon": "BI",
+      "unlock_conditions": {},
+      "position": [
+        930,
+        0
+      ]
     },
     {
       "id": "biotechnology_flame",
@@ -651,7 +742,14 @@
         "biotechnology_blade"
       ],
       "effect": "structure",
-      "value": "flame"
+      "value": "flame",
+      "tier": 1,
+      "icon": "BI",
+      "unlock_conditions": {},
+      "position": [
+        930,
+        255
+      ]
     },
     {
       "id": "biotechnology_cryo",
@@ -664,7 +762,14 @@
         "biotechnology_flame"
       ],
       "effect": "structure",
-      "value": "cryo"
+      "value": "cryo",
+      "tier": 1,
+      "icon": "BI",
+      "unlock_conditions": {},
+      "position": [
+        930,
+        510
+      ]
     },
     {
       "id": "biotechnology_regen",
@@ -677,7 +782,14 @@
         "biotechnology_blade"
       ],
       "effect": "regen",
-      "value": 0.5
+      "value": 0.5,
+      "tier": 1,
+      "icon": "BI",
+      "unlock_conditions": {},
+      "position": [
+        930,
+        765
+      ]
     },
     {
       "id": "energy_plasma",
@@ -688,7 +800,14 @@
       "max_rank": 1,
       "requires": [],
       "effect": "weapon",
-      "value": "plasma"
+      "value": "plasma",
+      "tier": 1,
+      "icon": "EN",
+      "unlock_conditions": {},
+      "position": [
+        1240,
+        0
+      ]
     },
     {
       "id": "energy_tesla",
@@ -701,7 +820,14 @@
         "energy_plasma"
       ],
       "effect": "structure",
-      "value": "tesla"
+      "value": "tesla",
+      "tier": 1,
+      "icon": "EN",
+      "unlock_conditions": {},
+      "position": [
+        1240,
+        255
+      ]
     },
     {
       "id": "energy_laser",
@@ -714,7 +840,14 @@
         "energy_tesla"
       ],
       "effect": "structure",
-      "value": "laser"
+      "value": "laser",
+      "tier": 1,
+      "icon": "EN",
+      "unlock_conditions": {},
+      "position": [
+        1240,
+        510
+      ]
     },
     {
       "id": "energy_damage",
@@ -727,7 +860,14 @@
         "energy_plasma"
       ],
       "effect": "damage",
-      "value": 0.08
+      "value": 0.08,
+      "tier": 1,
+      "icon": "EN",
+      "unlock_conditions": {},
+      "position": [
+        1240,
+        765
+      ]
     },
     {
       "id": "logistics_lmg",
@@ -738,7 +878,14 @@
       "max_rank": 1,
       "requires": [],
       "effect": "weapon",
-      "value": "lmg"
+      "value": "lmg",
+      "tier": 1,
+      "icon": "LO",
+      "unlock_conditions": {},
+      "position": [
+        1550,
+        0
+      ]
     },
     {
       "id": "logistics_support",
@@ -751,7 +898,14 @@
         "logistics_lmg"
       ],
       "effect": "structure",
-      "value": "support"
+      "value": "support",
+      "tier": 1,
+      "icon": "LO",
+      "unlock_conditions": {},
+      "position": [
+        1550,
+        255
+      ]
     },
     {
       "id": "logistics_generator",
@@ -764,7 +918,14 @@
         "logistics_support"
       ],
       "effect": "structure",
-      "value": "generator"
+      "value": "generator",
+      "tier": 1,
+      "icon": "LO",
+      "unlock_conditions": {},
+      "position": [
+        1550,
+        510
+      ]
     },
     {
       "id": "logistics_ammo",
@@ -777,7 +938,1934 @@
         "logistics_lmg"
       ],
       "effect": "structure",
-      "value": "ammo"
+      "value": "ammo",
+      "tier": 1,
+      "icon": "LO",
+      "unlock_conditions": {},
+      "position": [
+        1550,
+        765
+      ]
+    },
+    {
+      "id": "ballistics_caliber",
+      "name": "Heavy Caliber",
+      "description": "Increase weapon damage by 6% per rank.",
+      "branch": "Ballistics",
+      "tier": 1,
+      "cost": 125,
+      "max_rank": 3,
+      "requires": [
+        "ballistics_rail"
+      ],
+      "effect": "damage",
+      "value": 0.06,
+      "icon": "B",
+      "unlock_conditions": {},
+      "position": [
+        0,
+        1020
+      ]
+    },
+    {
+      "id": "ballistics_trigger",
+      "name": "Hair Trigger",
+      "description": "Increase weapon firing rate by 5% per rank.",
+      "branch": "Ballistics",
+      "tier": 1,
+      "cost": 125,
+      "max_rank": 3,
+      "requires": [
+        "ballistics_rail"
+      ],
+      "effect": "fire_rate",
+      "value": 0.05,
+      "icon": "B",
+      "unlock_conditions": {},
+      "position": [
+        0,
+        1275
+      ]
+    },
+    {
+      "id": "ballistics_magwell",
+      "name": "Polished Magwell",
+      "description": "Increase reload speed by 5% per rank.",
+      "branch": "Ballistics",
+      "tier": 2,
+      "cost": 160,
+      "max_rank": 3,
+      "requires": [
+        "ballistics_caliber"
+      ],
+      "effect": "reload",
+      "value": 0.05,
+      "icon": "B",
+      "unlock_conditions": {},
+      "position": [
+        0,
+        1530
+      ]
+    },
+    {
+      "id": "ballistics_sights",
+      "name": "Zeroed Sights",
+      "description": "Increase weapon and tower range by 5% per rank.",
+      "branch": "Ballistics",
+      "tier": 2,
+      "cost": 160,
+      "max_rank": 2,
+      "requires": [
+        "ballistics_trigger"
+      ],
+      "effect": "range",
+      "value": 0.05,
+      "icon": "B",
+      "unlock_conditions": {},
+      "position": [
+        0,
+        1785
+      ]
+    },
+    {
+      "id": "ballistics_weakpoints",
+      "name": "Weakpoint Drills",
+      "description": "Increase critical hit chance by 3% per rank.",
+      "branch": "Ballistics",
+      "tier": 3,
+      "cost": 195,
+      "max_rank": 3,
+      "requires": [
+        "ballistics_magwell"
+      ],
+      "effect": "critical",
+      "value": 0.03,
+      "icon": "B",
+      "unlock_conditions": {},
+      "position": [
+        0,
+        2040
+      ]
+    },
+    {
+      "id": "ballistics_ricochet",
+      "name": "Deflection Rounds",
+      "description": "Add 10.0% chance per rank for missed shots to ricochet once.",
+      "branch": "Ballistics",
+      "tier": 3,
+      "cost": 195,
+      "max_rank": 2,
+      "requires": [
+        "ballistics_sights"
+      ],
+      "effect": "ricochet",
+      "value": 0.1,
+      "icon": "B",
+      "unlock_conditions": {},
+      "position": [
+        0,
+        2295
+      ]
+    },
+    {
+      "id": "ballistics_penetrator",
+      "name": "Dense Penetrators",
+      "description": "Increase armor penetration by 5% per rank.",
+      "branch": "Ballistics",
+      "tier": 4,
+      "cost": 230,
+      "max_rank": 3,
+      "requires": [
+        "ballistics_weakpoints"
+      ],
+      "effect": "penetration",
+      "value": 0.05,
+      "icon": "B",
+      "unlock_conditions": {},
+      "position": [
+        0,
+        2550
+      ]
+    },
+    {
+      "id": "ballistics_doubletap",
+      "name": "Double Tap",
+      "description": "Fire 1 additional projectile per rank.",
+      "branch": "Ballistics",
+      "tier": 4,
+      "cost": 230,
+      "max_rank": 1,
+      "requires": [
+        "ballistics_ricochet"
+      ],
+      "effect": "projectiles",
+      "value": 1,
+      "icon": "B",
+      "unlock_conditions": {},
+      "position": [
+        0,
+        2805
+      ]
+    },
+    {
+      "id": "ballistics_followthrough",
+      "name": "Follow Through",
+      "description": "Increase weapon damage by 7.0% per rank.",
+      "branch": "Ballistics",
+      "tier": 5,
+      "cost": 265,
+      "max_rank": 2,
+      "requires": [
+        "ballistics_penetrator"
+      ],
+      "effect": "damage",
+      "value": 0.07,
+      "icon": "B",
+      "unlock_conditions": {},
+      "position": [
+        0,
+        3060
+      ]
+    },
+    {
+      "id": "ballistics_cycling",
+      "name": "Cycling Springs",
+      "description": "Increase weapon firing rate by 6% per rank.",
+      "branch": "Ballistics",
+      "tier": 5,
+      "cost": 265,
+      "max_rank": 2,
+      "requires": [
+        "ballistics_doubletap"
+      ],
+      "effect": "fire_rate",
+      "value": 0.06,
+      "icon": "B",
+      "unlock_conditions": {},
+      "position": [
+        0,
+        3315
+      ]
+    },
+    {
+      "id": "ballistics_recoil",
+      "name": "Recoil Discipline",
+      "description": "Increase weapon and tower range by 6% per rank.",
+      "branch": "Ballistics",
+      "tier": 6,
+      "cost": 300,
+      "max_rank": 2,
+      "requires": [
+        "ballistics_followthrough"
+      ],
+      "effect": "range",
+      "value": 0.06,
+      "icon": "B",
+      "unlock_conditions": {},
+      "position": [
+        0,
+        3570
+      ]
+    },
+    {
+      "id": "ballistics_hollowpoint",
+      "name": "Hollow Point Loads",
+      "description": "Increase critical hit chance by 4% per rank.",
+      "branch": "Ballistics",
+      "tier": 6,
+      "cost": 300,
+      "max_rank": 2,
+      "requires": [
+        "ballistics_cycling"
+      ],
+      "effect": "critical",
+      "value": 0.04,
+      "icon": "B",
+      "unlock_conditions": {},
+      "position": [
+        0,
+        3825
+      ]
+    },
+    {
+      "id": "ballistics_bankshot",
+      "name": "Bank Shot Geometry",
+      "description": "Add 15.0% chance per rank for missed shots to ricochet once.",
+      "branch": "Ballistics",
+      "tier": 7,
+      "cost": 335,
+      "max_rank": 2,
+      "requires": [
+        "ballistics_recoil"
+      ],
+      "effect": "ricochet",
+      "value": 0.15,
+      "icon": "B",
+      "unlock_conditions": {},
+      "position": [
+        0,
+        4080
+      ]
+    },
+    {
+      "id": "ballistics_armor_piercing",
+      "name": "Armor Piercing",
+      "description": "Increase armor penetration by 7% per rank.",
+      "branch": "Ballistics",
+      "tier": 8,
+      "cost": 370,
+      "max_rank": 2,
+      "requires": [
+        "ballistics_hollowpoint"
+      ],
+      "effect": "penetration",
+      "value": 0.07,
+      "icon": "B",
+      "unlock_conditions": {},
+      "position": [
+        0,
+        4335
+      ]
+    },
+    {
+      "id": "ballistics_quickdraw",
+      "name": "Quickdraw Rig",
+      "description": "Increase reload speed by 6% per rank.",
+      "branch": "Ballistics",
+      "tier": 9,
+      "cost": 405,
+      "max_rank": 2,
+      "requires": [
+        "ballistics_bankshot"
+      ],
+      "effect": "reload",
+      "value": 0.06,
+      "icon": "B",
+      "unlock_conditions": {},
+      "position": [
+        0,
+        4590
+      ]
+    },
+    {
+      "id": "ballistics_volley",
+      "name": "Synchronized Volley",
+      "description": "Fire 1 additional projectile per rank.",
+      "branch": "Ballistics",
+      "tier": 10,
+      "cost": 440,
+      "max_rank": 1,
+      "requires": [
+        "ballistics_armor_piercing"
+      ],
+      "effect": "projectiles",
+      "value": 1,
+      "icon": "B",
+      "unlock_conditions": {},
+      "position": [
+        0,
+        4845
+      ]
+    },
+    {
+      "id": "engineering_blast_lining",
+      "name": "Blast Lining",
+      "description": "Add 4.0% chance for weapon hits to trigger a small secondary explosion per rank.",
+      "branch": "Engineering",
+      "tier": 1,
+      "cost": 125,
+      "max_rank": 3,
+      "requires": [
+        "engineering_mortar"
+      ],
+      "effect": "explosive",
+      "value": 0.04,
+      "icon": "E",
+      "unlock_conditions": {},
+      "position": [
+        310,
+        1020
+      ]
+    },
+    {
+      "id": "engineering_servo_array",
+      "name": "Servo Array",
+      "description": "Increase tower firing rate by 6% per rank.",
+      "branch": "Engineering",
+      "tier": 1,
+      "cost": 125,
+      "max_rank": 3,
+      "requires": [
+        "engineering_mortar"
+      ],
+      "effect": "tower_rate",
+      "value": 0.06,
+      "icon": "E",
+      "unlock_conditions": {},
+      "position": [
+        310,
+        1275
+      ]
+    },
+    {
+      "id": "engineering_range_relays",
+      "name": "Range Relays",
+      "description": "Increase tower range by 5% per rank.",
+      "branch": "Engineering",
+      "tier": 2,
+      "cost": 160,
+      "max_rank": 3,
+      "requires": [
+        "engineering_blast_lining"
+      ],
+      "effect": "tower_range",
+      "value": 0.05,
+      "icon": "E",
+      "unlock_conditions": {},
+      "position": [
+        310,
+        1530
+      ]
+    },
+    {
+      "id": "engineering_reinforced_mounts",
+      "name": "Reinforced Mounts",
+      "description": "Increase tower damage by 8% per rank.",
+      "branch": "Engineering",
+      "tier": 2,
+      "cost": 160,
+      "max_rank": 3,
+      "requires": [
+        "engineering_servo_array"
+      ],
+      "effect": "tower_damage",
+      "value": 0.08,
+      "icon": "E",
+      "unlock_conditions": {},
+      "position": [
+        310,
+        1785
+      ]
+    },
+    {
+      "id": "engineering_demo_charge",
+      "name": "Demolition Charges",
+      "description": "Add 4.0% chance for weapon hits to trigger a small secondary explosion per rank.",
+      "branch": "Engineering",
+      "tier": 3,
+      "cost": 195,
+      "max_rank": 2,
+      "requires": [
+        "engineering_range_relays"
+      ],
+      "effect": "explosive",
+      "value": 0.04,
+      "icon": "E",
+      "unlock_conditions": {},
+      "position": [
+        310,
+        2040
+      ]
+    },
+    {
+      "id": "engineering_fasteners",
+      "name": "Rapid Fasteners",
+      "description": "Increase structure repair efficiency by 6% per rank.",
+      "branch": "Engineering",
+      "tier": 3,
+      "cost": 195,
+      "max_rank": 3,
+      "requires": [
+        "engineering_reinforced_mounts"
+      ],
+      "effect": "repair_efficiency",
+      "value": 0.06,
+      "icon": "E",
+      "unlock_conditions": {},
+      "position": [
+        310,
+        2295
+      ]
+    },
+    {
+      "id": "engineering_ammo_rack",
+      "name": "Expanded Ammo Rack",
+      "description": "Add 2 backpack slots per rank.",
+      "branch": "Engineering",
+      "tier": 4,
+      "cost": 230,
+      "max_rank": 2,
+      "requires": [
+        "engineering_demo_charge"
+      ],
+      "effect": "capacity",
+      "value": 2,
+      "icon": "E",
+      "unlock_conditions": {},
+      "position": [
+        310,
+        2550
+      ]
+    },
+    {
+      "id": "engineering_targeting_lens",
+      "name": "Targeting Lens",
+      "description": "Increase tower range by 6% per rank.",
+      "branch": "Engineering",
+      "tier": 4,
+      "cost": 230,
+      "max_rank": 2,
+      "requires": [
+        "engineering_fasteners"
+      ],
+      "effect": "tower_range",
+      "value": 0.06,
+      "icon": "E",
+      "unlock_conditions": {},
+      "position": [
+        310,
+        2805
+      ]
+    },
+    {
+      "id": "engineering_blast_shaping",
+      "name": "Shaped Charges",
+      "description": "Add 5.0% chance for weapon hits to trigger a small secondary explosion per rank.",
+      "branch": "Engineering",
+      "tier": 5,
+      "cost": 265,
+      "max_rank": 2,
+      "requires": [
+        "engineering_ammo_rack"
+      ],
+      "effect": "explosive",
+      "value": 0.05,
+      "icon": "E",
+      "unlock_conditions": {},
+      "position": [
+        310,
+        3060
+      ]
+    },
+    {
+      "id": "engineering_stabilizers",
+      "name": "Gyro Stabilizers",
+      "description": "Increase tower firing rate by 7.0% per rank.",
+      "branch": "Engineering",
+      "tier": 5,
+      "cost": 265,
+      "max_rank": 2,
+      "requires": [
+        "engineering_targeting_lens"
+      ],
+      "effect": "tower_rate",
+      "value": 0.07,
+      "icon": "E",
+      "unlock_conditions": {},
+      "position": [
+        310,
+        3315
+      ]
+    },
+    {
+      "id": "engineering_heavy_barrels",
+      "name": "Heavy Barrels",
+      "description": "Increase tower damage by 10% per rank.",
+      "branch": "Engineering",
+      "tier": 6,
+      "cost": 300,
+      "max_rank": 2,
+      "requires": [
+        "engineering_blast_shaping"
+      ],
+      "effect": "tower_damage",
+      "value": 0.1,
+      "icon": "E",
+      "unlock_conditions": {},
+      "position": [
+        310,
+        3570
+      ]
+    },
+    {
+      "id": "engineering_field_welders",
+      "name": "Field Welders",
+      "description": "Increase structure repair efficiency by 7.0% per rank.",
+      "branch": "Engineering",
+      "tier": 6,
+      "cost": 300,
+      "max_rank": 2,
+      "requires": [
+        "engineering_stabilizers"
+      ],
+      "effect": "repair_efficiency",
+      "value": 0.07,
+      "icon": "E",
+      "unlock_conditions": {},
+      "position": [
+        310,
+        3825
+      ]
+    },
+    {
+      "id": "engineering_reserve_canisters",
+      "name": "Reserve Canisters",
+      "description": "Add 2 backpack slots per rank.",
+      "branch": "Engineering",
+      "tier": 7,
+      "cost": 335,
+      "max_rank": 2,
+      "requires": [
+        "engineering_heavy_barrels"
+      ],
+      "effect": "capacity",
+      "value": 2,
+      "icon": "E",
+      "unlock_conditions": {},
+      "position": [
+        310,
+        4080
+      ]
+    },
+    {
+      "id": "engineering_overpressure",
+      "name": "Overpressure Shells",
+      "description": "Add 5.0% chance for weapon hits to trigger a small secondary explosion per rank.",
+      "branch": "Engineering",
+      "tier": 8,
+      "cost": 370,
+      "max_rank": 2,
+      "requires": [
+        "engineering_field_welders"
+      ],
+      "effect": "explosive",
+      "value": 0.05,
+      "icon": "E",
+      "unlock_conditions": {},
+      "position": [
+        310,
+        4335
+      ]
+    },
+    {
+      "id": "engineering_smart_fuzes",
+      "name": "Smart Fuzes",
+      "description": "Increase tower damage by 12% per rank.",
+      "branch": "Engineering",
+      "tier": 9,
+      "cost": 405,
+      "max_rank": 2,
+      "requires": [
+        "engineering_reserve_canisters"
+      ],
+      "effect": "tower_damage",
+      "value": 0.12,
+      "icon": "E",
+      "unlock_conditions": {},
+      "position": [
+        310,
+        4590
+      ]
+    },
+    {
+      "id": "engineering_automated_traverse",
+      "name": "Automated Traverse",
+      "description": "Increase tower firing rate by 8% per rank.",
+      "branch": "Engineering",
+      "tier": 10,
+      "cost": 440,
+      "max_rank": 2,
+      "requires": [
+        "engineering_overpressure"
+      ],
+      "effect": "tower_rate",
+      "value": 0.08,
+      "icon": "E",
+      "unlock_conditions": {},
+      "position": [
+        310,
+        4845
+      ]
+    },
+    {
+      "id": "fortification_vital_reserve",
+      "name": "Vital Reserve",
+      "description": "Add 30 maximum player health per rank.",
+      "branch": "Fortification",
+      "tier": 1,
+      "cost": 125,
+      "max_rank": 3,
+      "requires": [
+        "fortification_armor"
+      ],
+      "effect": "health",
+      "value": 30,
+      "icon": "F",
+      "unlock_conditions": {},
+      "position": [
+        620,
+        1020
+      ]
+    },
+    {
+      "id": "fortification_core_bulkheads",
+      "name": "Core Bulkheads",
+      "description": "Add 150 core health per rank.",
+      "branch": "Fortification",
+      "tier": 1,
+      "cost": 125,
+      "max_rank": 3,
+      "requires": [
+        "fortification_armor"
+      ],
+      "effect": "core_health",
+      "value": 150,
+      "icon": "F",
+      "unlock_conditions": {},
+      "position": [
+        620,
+        1275
+      ]
+    },
+    {
+      "id": "fortification_reinforced_shield",
+      "name": "Reinforced Shield Matrix",
+      "description": "Add 35 core shield capacity per rank.",
+      "branch": "Fortification",
+      "tier": 2,
+      "cost": 160,
+      "max_rank": 3,
+      "requires": [
+        "fortification_vital_reserve"
+      ],
+      "effect": "core_shield",
+      "value": 35,
+      "icon": "F",
+      "unlock_conditions": {},
+      "position": [
+        620,
+        1530
+      ]
+    },
+    {
+      "id": "fortification_impact_dampers",
+      "name": "Impact Dampers",
+      "description": "Reduce incoming player damage by 5% per rank.",
+      "branch": "Fortification",
+      "tier": 2,
+      "cost": 160,
+      "max_rank": 3,
+      "requires": [
+        "fortification_core_bulkheads"
+      ],
+      "effect": "armor",
+      "value": 0.05,
+      "icon": "F",
+      "unlock_conditions": {},
+      "position": [
+        620,
+        1785
+      ]
+    },
+    {
+      "id": "fortification_field_barrier",
+      "name": "Field Barrier Cells",
+      "description": "Add 15 player shield capacity per rank.",
+      "branch": "Fortification",
+      "tier": 3,
+      "cost": 195,
+      "max_rank": 3,
+      "requires": [
+        "fortification_reinforced_shield"
+      ],
+      "effect": "shield",
+      "value": 15,
+      "icon": "F",
+      "unlock_conditions": {},
+      "position": [
+        620,
+        2040
+      ]
+    },
+    {
+      "id": "fortification_core_ceramics",
+      "name": "Core Ceramic Armor",
+      "description": "Reduce incoming core damage by 5% per rank.",
+      "branch": "Fortification",
+      "tier": 3,
+      "cost": 195,
+      "max_rank": 3,
+      "requires": [
+        "fortification_impact_dampers"
+      ],
+      "effect": "core_armor",
+      "value": 0.05,
+      "icon": "F",
+      "unlock_conditions": {},
+      "position": [
+        620,
+        2295
+      ]
+    },
+    {
+      "id": "fortification_emergency_repair",
+      "name": "Emergency Repair Protocol",
+      "description": "Increase structure repair efficiency by 6% per rank.",
+      "branch": "Fortification",
+      "tier": 4,
+      "cost": 230,
+      "max_rank": 3,
+      "requires": [
+        "fortification_field_barrier"
+      ],
+      "effect": "repair_efficiency",
+      "value": 0.06,
+      "icon": "F",
+      "unlock_conditions": {},
+      "position": [
+        620,
+        2550
+      ]
+    },
+    {
+      "id": "fortification_stride_actuators",
+      "name": "Stride Actuators",
+      "description": "Increase player movement speed by 4% per rank.",
+      "branch": "Fortification",
+      "tier": 4,
+      "cost": 230,
+      "max_rank": 3,
+      "requires": [
+        "fortification_core_ceramics"
+      ],
+      "effect": "movement",
+      "value": 0.04,
+      "icon": "F",
+      "unlock_conditions": {},
+      "position": [
+        620,
+        2805
+      ]
+    },
+    {
+      "id": "fortification_fortified_vitals",
+      "name": "Fortified Vitals",
+      "description": "Add 35 maximum player health per rank.",
+      "branch": "Fortification",
+      "tier": 5,
+      "cost": 265,
+      "max_rank": 2,
+      "requires": [
+        "fortification_emergency_repair"
+      ],
+      "effect": "health",
+      "value": 35,
+      "icon": "F",
+      "unlock_conditions": {},
+      "position": [
+        620,
+        3060
+      ]
+    },
+    {
+      "id": "fortification_redundant_bulkheads",
+      "name": "Redundant Bulkheads",
+      "description": "Add 180 core health per rank.",
+      "branch": "Fortification",
+      "tier": 5,
+      "cost": 265,
+      "max_rank": 2,
+      "requires": [
+        "fortification_stride_actuators"
+      ],
+      "effect": "core_health",
+      "value": 180,
+      "icon": "F",
+      "unlock_conditions": {},
+      "position": [
+        620,
+        3315
+      ]
+    },
+    {
+      "id": "fortification_capacitor_bank",
+      "name": "Capacitor Bank",
+      "description": "Add 40 core shield capacity per rank.",
+      "branch": "Fortification",
+      "tier": 6,
+      "cost": 300,
+      "max_rank": 2,
+      "requires": [
+        "fortification_fortified_vitals"
+      ],
+      "effect": "core_shield",
+      "value": 40,
+      "icon": "F",
+      "unlock_conditions": {},
+      "position": [
+        620,
+        3570
+      ]
+    },
+    {
+      "id": "fortification_shock_absorption",
+      "name": "Shock Absorption",
+      "description": "Reduce incoming player damage by 6% per rank.",
+      "branch": "Fortification",
+      "tier": 6,
+      "cost": 300,
+      "max_rank": 2,
+      "requires": [
+        "fortification_redundant_bulkheads"
+      ],
+      "effect": "armor",
+      "value": 0.06,
+      "icon": "F",
+      "unlock_conditions": {},
+      "position": [
+        620,
+        3825
+      ]
+    },
+    {
+      "id": "fortification_personal_shielding",
+      "name": "Personal Shielding",
+      "description": "Add 20 player shield capacity per rank.",
+      "branch": "Fortification",
+      "tier": 7,
+      "cost": 335,
+      "max_rank": 2,
+      "requires": [
+        "fortification_capacitor_bank"
+      ],
+      "effect": "shield",
+      "value": 20,
+      "icon": "F",
+      "unlock_conditions": {},
+      "position": [
+        620,
+        4080
+      ]
+    },
+    {
+      "id": "fortification_ceramic_weave",
+      "name": "Ceramic Weave",
+      "description": "Reduce incoming core damage by 6% per rank.",
+      "branch": "Fortification",
+      "tier": 8,
+      "cost": 370,
+      "max_rank": 2,
+      "requires": [
+        "fortification_shock_absorption"
+      ],
+      "effect": "core_armor",
+      "value": 0.06,
+      "icon": "F",
+      "unlock_conditions": {},
+      "position": [
+        620,
+        4335
+      ]
+    },
+    {
+      "id": "fortification_rapid_patch",
+      "name": "Rapid Patch Systems",
+      "description": "Increase structure repair efficiency by 7.0% per rank.",
+      "branch": "Fortification",
+      "tier": 9,
+      "cost": 405,
+      "max_rank": 2,
+      "requires": [
+        "fortification_personal_shielding"
+      ],
+      "effect": "repair_efficiency",
+      "value": 0.07,
+      "icon": "F",
+      "unlock_conditions": {},
+      "position": [
+        620,
+        4590
+      ]
+    },
+    {
+      "id": "fortification_light_frame",
+      "name": "Lightweight Frame",
+      "description": "Increase player movement speed by 5% per rank.",
+      "branch": "Fortification",
+      "tier": 10,
+      "cost": 440,
+      "max_rank": 2,
+      "requires": [
+        "fortification_ceramic_weave"
+      ],
+      "effect": "movement",
+      "value": 0.05,
+      "icon": "F",
+      "unlock_conditions": {},
+      "position": [
+        620,
+        4845
+      ]
+    },
+    {
+      "id": "biotechnology_combat_stimulant",
+      "name": "Combat Stimulant",
+      "description": "Restore 1% of damage dealt as health per rank.",
+      "branch": "Biotechnology",
+      "tier": 1,
+      "cost": 125,
+      "max_rank": 3,
+      "requires": [
+        "biotechnology_cryo"
+      ],
+      "effect": "lifesteal",
+      "value": 0.01,
+      "icon": "B",
+      "unlock_conditions": {},
+      "position": [
+        930,
+        1020
+      ]
+    },
+    {
+      "id": "biotechnology_ignition_culture",
+      "name": "Ignition Culture",
+      "description": "Add 2 burn damage per second per rank.",
+      "branch": "Biotechnology",
+      "tier": 1,
+      "cost": 125,
+      "max_rank": 3,
+      "requires": [
+        "biotechnology_cryo"
+      ],
+      "effect": "burn",
+      "value": 2,
+      "icon": "B",
+      "unlock_conditions": {},
+      "position": [
+        930,
+        1275
+      ]
+    },
+    {
+      "id": "biotechnology_cryo_spores",
+      "name": "Cryogenic Spores",
+      "description": "Slow enemies hit by weapons by an additional 4.0% per rank for 2 seconds.",
+      "branch": "Biotechnology",
+      "tier": 2,
+      "cost": 160,
+      "max_rank": 3,
+      "requires": [
+        "biotechnology_combat_stimulant"
+      ],
+      "effect": "freeze",
+      "value": 0.04,
+      "icon": "B",
+      "unlock_conditions": {},
+      "position": [
+        930,
+        1530
+      ]
+    },
+    {
+      "id": "biotechnology_toxin_glands",
+      "name": "Toxin Glands",
+      "description": "Add 1.5 poison damage per second per rank.",
+      "branch": "Biotechnology",
+      "tier": 2,
+      "cost": 160,
+      "max_rank": 3,
+      "requires": [
+        "biotechnology_ignition_culture"
+      ],
+      "effect": "poison",
+      "value": 1.5,
+      "icon": "B",
+      "unlock_conditions": {},
+      "position": [
+        930,
+        1785
+      ]
+    },
+    {
+      "id": "biotechnology_adaptive_immunity",
+      "name": "Adaptive Immunity",
+      "description": "Reduce incoming environmental damage by 8.0% per rank.",
+      "branch": "Biotechnology",
+      "tier": 3,
+      "cost": 195,
+      "max_rank": 3,
+      "requires": [
+        "biotechnology_cryo_spores"
+      ],
+      "effect": "status_resist",
+      "value": 0.08,
+      "icon": "B",
+      "unlock_conditions": {},
+      "position": [
+        930,
+        2040
+      ]
+    },
+    {
+      "id": "biotechnology_accelerated_healing",
+      "name": "Accelerated Healing",
+      "description": "Regenerate 0.5 player health per second per rank after avoiding damage.",
+      "branch": "Biotechnology",
+      "tier": 3,
+      "cost": 195,
+      "max_rank": 3,
+      "requires": [
+        "biotechnology_toxin_glands"
+      ],
+      "effect": "regen",
+      "value": 0.5,
+      "icon": "B",
+      "unlock_conditions": {},
+      "position": [
+        930,
+        2295
+      ]
+    },
+    {
+      "id": "biotechnology_metabolic_reserve",
+      "name": "Metabolic Reserve",
+      "description": "Add 30 maximum player health per rank.",
+      "branch": "Biotechnology",
+      "tier": 4,
+      "cost": 230,
+      "max_rank": 2,
+      "requires": [
+        "biotechnology_adaptive_immunity"
+      ],
+      "effect": "health",
+      "value": 30,
+      "icon": "B",
+      "unlock_conditions": {},
+      "position": [
+        930,
+        2550
+      ]
+    },
+    {
+      "id": "biotechnology_symbiotic_shield",
+      "name": "Symbiotic Shielding",
+      "description": "Add 20 player shield capacity per rank.",
+      "branch": "Biotechnology",
+      "tier": 4,
+      "cost": 230,
+      "max_rank": 2,
+      "requires": [
+        "biotechnology_accelerated_healing"
+      ],
+      "effect": "shield",
+      "value": 20,
+      "icon": "B",
+      "unlock_conditions": {},
+      "position": [
+        930,
+        2805
+      ]
+    },
+    {
+      "id": "biotechnology_predator_strain",
+      "name": "Predator Strain",
+      "description": "Restore 1.5% of damage dealt as health per rank.",
+      "branch": "Biotechnology",
+      "tier": 5,
+      "cost": 265,
+      "max_rank": 2,
+      "requires": [
+        "biotechnology_metabolic_reserve"
+      ],
+      "effect": "lifesteal",
+      "value": 0.015,
+      "icon": "B",
+      "unlock_conditions": {},
+      "position": [
+        930,
+        3060
+      ]
+    },
+    {
+      "id": "biotechnology_sustained_ignition",
+      "name": "Sustained Ignition",
+      "description": "Add 2.5 burn damage per second per rank.",
+      "branch": "Biotechnology",
+      "tier": 5,
+      "cost": 265,
+      "max_rank": 2,
+      "requires": [
+        "biotechnology_symbiotic_shield"
+      ],
+      "effect": "burn",
+      "value": 2.5,
+      "icon": "B",
+      "unlock_conditions": {},
+      "position": [
+        930,
+        3315
+      ]
+    },
+    {
+      "id": "biotechnology_deep_freeze",
+      "name": "Deep Freeze",
+      "description": "Slow enemies hit by weapons by an additional 5.0% per rank for 2 seconds.",
+      "branch": "Biotechnology",
+      "tier": 6,
+      "cost": 300,
+      "max_rank": 2,
+      "requires": [
+        "biotechnology_predator_strain"
+      ],
+      "effect": "freeze",
+      "value": 0.05,
+      "icon": "B",
+      "unlock_conditions": {},
+      "position": [
+        930,
+        3570
+      ]
+    },
+    {
+      "id": "biotechnology_virulent_toxin",
+      "name": "Virulent Toxin",
+      "description": "Add 2 poison damage per second per rank.",
+      "branch": "Biotechnology",
+      "tier": 6,
+      "cost": 300,
+      "max_rank": 2,
+      "requires": [
+        "biotechnology_sustained_ignition"
+      ],
+      "effect": "poison",
+      "value": 2,
+      "icon": "B",
+      "unlock_conditions": {},
+      "position": [
+        930,
+        3825
+      ]
+    },
+    {
+      "id": "biotechnology_resistant_culture",
+      "name": "Resistant Culture",
+      "description": "Reduce incoming environmental damage by 10.0% per rank.",
+      "branch": "Biotechnology",
+      "tier": 7,
+      "cost": 335,
+      "max_rank": 2,
+      "requires": [
+        "biotechnology_deep_freeze"
+      ],
+      "effect": "status_resist",
+      "value": 0.1,
+      "icon": "B",
+      "unlock_conditions": {},
+      "position": [
+        930,
+        4080
+      ]
+    },
+    {
+      "id": "biotechnology_cellular_renewal",
+      "name": "Cellular Renewal",
+      "description": "Regenerate 0.6 player health per second per rank after avoiding damage.",
+      "branch": "Biotechnology",
+      "tier": 8,
+      "cost": 370,
+      "max_rank": 2,
+      "requires": [
+        "biotechnology_virulent_toxin"
+      ],
+      "effect": "regen",
+      "value": 0.6,
+      "icon": "B",
+      "unlock_conditions": {},
+      "position": [
+        930,
+        4335
+      ]
+    },
+    {
+      "id": "biotechnology_reinforced_tissue",
+      "name": "Reinforced Tissue",
+      "description": "Add 35 maximum player health per rank.",
+      "branch": "Biotechnology",
+      "tier": 9,
+      "cost": 405,
+      "max_rank": 2,
+      "requires": [
+        "biotechnology_resistant_culture"
+      ],
+      "effect": "health",
+      "value": 35,
+      "icon": "B",
+      "unlock_conditions": {},
+      "position": [
+        930,
+        4590
+      ]
+    },
+    {
+      "id": "biotechnology_bioelectric_membrane",
+      "name": "Bioelectric Membrane",
+      "description": "Add 20 player shield capacity per rank.",
+      "branch": "Biotechnology",
+      "tier": 10,
+      "cost": 440,
+      "max_rank": 2,
+      "requires": [
+        "biotechnology_cellular_renewal"
+      ],
+      "effect": "shield",
+      "value": 20,
+      "icon": "B",
+      "unlock_conditions": {},
+      "position": [
+        930,
+        4845
+      ]
+    },
+    {
+      "id": "energy_capacitor_overdrive",
+      "name": "Capacitor Overdrive",
+      "description": "Increase ability power by 8% per rank.",
+      "branch": "Energy",
+      "tier": 1,
+      "cost": 125,
+      "max_rank": 3,
+      "requires": [
+        "energy_laser"
+      ],
+      "effect": "ability_power",
+      "value": 0.08,
+      "icon": "E",
+      "unlock_conditions": {},
+      "position": [
+        1240,
+        1020
+      ]
+    },
+    {
+      "id": "energy_rapid_recharge",
+      "name": "Rapid Recharge",
+      "description": "Reduce Pulse cooldown by 6.0% per rank.",
+      "branch": "Energy",
+      "tier": 1,
+      "cost": 125,
+      "max_rank": 3,
+      "requires": [
+        "energy_laser"
+      ],
+      "effect": "ability_rate",
+      "value": 0.06,
+      "icon": "E",
+      "unlock_conditions": {},
+      "position": [
+        1240,
+        1275
+      ]
+    },
+    {
+      "id": "energy_arc_lattice",
+      "name": "Arc Lattice",
+      "description": "Add 6.0% chance per rank for weapon hits to chain to a nearby enemy.",
+      "branch": "Energy",
+      "tier": 2,
+      "cost": 160,
+      "max_rank": 3,
+      "requires": [
+        "energy_capacitor_overdrive"
+      ],
+      "effect": "chain",
+      "value": 0.06,
+      "icon": "E",
+      "unlock_conditions": {},
+      "position": [
+        1240,
+        1530
+      ]
+    },
+    {
+      "id": "energy_phase_lance",
+      "name": "Phase Lance",
+      "description": "Increase armor penetration by 5% per rank.",
+      "branch": "Energy",
+      "tier": 2,
+      "cost": 160,
+      "max_rank": 3,
+      "requires": [
+        "energy_rapid_recharge"
+      ],
+      "effect": "penetration",
+      "value": 0.05,
+      "icon": "E",
+      "unlock_conditions": {},
+      "position": [
+        1240,
+        1785
+      ]
+    },
+    {
+      "id": "energy_ionized_rounds",
+      "name": "Ionized Rounds",
+      "description": "Increase weapon firing rate by 5% per rank.",
+      "branch": "Energy",
+      "tier": 3,
+      "cost": 195,
+      "max_rank": 3,
+      "requires": [
+        "energy_arc_lattice"
+      ],
+      "effect": "fire_rate",
+      "value": 0.05,
+      "icon": "E",
+      "unlock_conditions": {},
+      "position": [
+        1240,
+        2040
+      ]
+    },
+    {
+      "id": "energy_flux_shield",
+      "name": "Flux Shield",
+      "description": "Add 20 player shield capacity per rank.",
+      "branch": "Energy",
+      "tier": 3,
+      "cost": 195,
+      "max_rank": 3,
+      "requires": [
+        "energy_phase_lance"
+      ],
+      "effect": "shield",
+      "value": 20,
+      "icon": "E",
+      "unlock_conditions": {},
+      "position": [
+        1240,
+        2295
+      ]
+    },
+    {
+      "id": "energy_prism_focus",
+      "name": "Prism Focus",
+      "description": "Increase critical hit chance by 3% per rank.",
+      "branch": "Energy",
+      "tier": 4,
+      "cost": 230,
+      "max_rank": 3,
+      "requires": [
+        "energy_ionized_rounds"
+      ],
+      "effect": "critical",
+      "value": 0.03,
+      "icon": "E",
+      "unlock_conditions": {},
+      "position": [
+        1240,
+        2550
+      ]
+    },
+    {
+      "id": "energy_amplifier_bank",
+      "name": "Amplifier Bank",
+      "description": "Increase ability power by 10% per rank.",
+      "branch": "Energy",
+      "tier": 4,
+      "cost": 230,
+      "max_rank": 2,
+      "requires": [
+        "energy_flux_shield"
+      ],
+      "effect": "ability_power",
+      "value": 0.1,
+      "icon": "E",
+      "unlock_conditions": {},
+      "position": [
+        1240,
+        2805
+      ]
+    },
+    {
+      "id": "energy_cascade_coils",
+      "name": "Cascade Coils",
+      "description": "Add 8.0% chance per rank for weapon hits to chain to a nearby enemy.",
+      "branch": "Energy",
+      "tier": 5,
+      "cost": 265,
+      "max_rank": 2,
+      "requires": [
+        "energy_prism_focus"
+      ],
+      "effect": "chain",
+      "value": 0.08,
+      "icon": "E",
+      "unlock_conditions": {},
+      "position": [
+        1240,
+        3060
+      ]
+    },
+    {
+      "id": "energy_phase_conduit",
+      "name": "Phase Conduit",
+      "description": "Increase armor penetration by 7% per rank.",
+      "branch": "Energy",
+      "tier": 5,
+      "cost": 265,
+      "max_rank": 2,
+      "requires": [
+        "energy_amplifier_bank"
+      ],
+      "effect": "penetration",
+      "value": 0.07,
+      "icon": "E",
+      "unlock_conditions": {},
+      "position": [
+        1240,
+        3315
+      ]
+    },
+    {
+      "id": "energy_pulse_timing",
+      "name": "Pulse Timing",
+      "description": "Reduce Pulse cooldown by 7.0% per rank.",
+      "branch": "Energy",
+      "tier": 6,
+      "cost": 300,
+      "max_rank": 2,
+      "requires": [
+        "energy_cascade_coils"
+      ],
+      "effect": "ability_rate",
+      "value": 0.07,
+      "icon": "E",
+      "unlock_conditions": {},
+      "position": [
+        1240,
+        3570
+      ]
+    },
+    {
+      "id": "energy_overclocked_emitter",
+      "name": "Overclocked Emitter",
+      "description": "Increase weapon firing rate by 6% per rank.",
+      "branch": "Energy",
+      "tier": 6,
+      "cost": 300,
+      "max_rank": 2,
+      "requires": [
+        "energy_phase_conduit"
+      ],
+      "effect": "fire_rate",
+      "value": 0.06,
+      "icon": "E",
+      "unlock_conditions": {},
+      "position": [
+        1240,
+        3825
+      ]
+    },
+    {
+      "id": "energy_prismatic_array",
+      "name": "Prismatic Array",
+      "description": "Increase critical hit chance by 4% per rank.",
+      "branch": "Energy",
+      "tier": 7,
+      "cost": 335,
+      "max_rank": 2,
+      "requires": [
+        "energy_pulse_timing"
+      ],
+      "effect": "critical",
+      "value": 0.04,
+      "icon": "E",
+      "unlock_conditions": {},
+      "position": [
+        1240,
+        4080
+      ]
+    },
+    {
+      "id": "energy_reserve_capacitors",
+      "name": "Reserve Capacitors",
+      "description": "Add 20 player shield capacity per rank.",
+      "branch": "Energy",
+      "tier": 8,
+      "cost": 370,
+      "max_rank": 2,
+      "requires": [
+        "energy_overclocked_emitter"
+      ],
+      "effect": "shield",
+      "value": 20,
+      "icon": "E",
+      "unlock_conditions": {},
+      "position": [
+        1240,
+        4335
+      ]
+    },
+    {
+      "id": "energy_surge_discharge",
+      "name": "Surge Discharge",
+      "description": "Increase ability power by 12% per rank.",
+      "branch": "Energy",
+      "tier": 9,
+      "cost": 405,
+      "max_rank": 2,
+      "requires": [
+        "energy_prismatic_array"
+      ],
+      "effect": "ability_power",
+      "value": 0.12,
+      "icon": "E",
+      "unlock_conditions": {},
+      "position": [
+        1240,
+        4590
+      ]
+    },
+    {
+      "id": "energy_forked_arc",
+      "name": "Forked Arc",
+      "description": "Add 7.0% chance per rank for weapon hits to chain to a nearby enemy.",
+      "branch": "Energy",
+      "tier": 10,
+      "cost": 440,
+      "max_rank": 2,
+      "requires": [
+        "energy_reserve_capacitors"
+      ],
+      "effect": "chain",
+      "value": 0.07,
+      "icon": "E",
+      "unlock_conditions": {},
+      "position": [
+        1240,
+        4845
+      ]
+    },
+    {
+      "id": "logistics_reclamation_teams",
+      "name": "Reclamation Teams",
+      "description": "Add 8 starting scrap per rank.",
+      "branch": "Logistics",
+      "tier": 1,
+      "cost": 125,
+      "max_rank": 3,
+      "requires": [
+        "logistics_generator"
+      ],
+      "effect": "scrap",
+      "value": 8,
+      "icon": "L",
+      "unlock_conditions": {},
+      "position": [
+        1550,
+        1020
+      ]
+    },
+    {
+      "id": "logistics_ration_network",
+      "name": "Ration Network",
+      "description": "Reduce supply and weapon purchase costs by 5.0% per rank.",
+      "branch": "Logistics",
+      "tier": 1,
+      "cost": 125,
+      "max_rank": 3,
+      "requires": [
+        "logistics_generator"
+      ],
+      "effect": "supply",
+      "value": 0.05,
+      "icon": "L",
+      "unlock_conditions": {},
+      "position": [
+        1550,
+        1275
+      ]
+    },
+    {
+      "id": "logistics_scrap_refinery",
+      "name": "Scrap Refinery",
+      "description": "Increase structure production by 8% per rank.",
+      "branch": "Logistics",
+      "tier": 2,
+      "cost": 160,
+      "max_rank": 3,
+      "requires": [
+        "logistics_reclamation_teams"
+      ],
+      "effect": "production",
+      "value": 0.08,
+      "icon": "L",
+      "unlock_conditions": {},
+      "position": [
+        1550,
+        1530
+      ]
+    },
+    {
+      "id": "logistics_salvage_ledger",
+      "name": "Salvage Ledger",
+      "description": "Reduce structure costs by 4% per rank.",
+      "branch": "Logistics",
+      "tier": 2,
+      "cost": 160,
+      "max_rank": 3,
+      "requires": [
+        "logistics_ration_network"
+      ],
+      "effect": "discount",
+      "value": 0.04,
+      "icon": "L",
+      "unlock_conditions": {},
+      "position": [
+        1550,
+        1785
+      ]
+    },
+    {
+      "id": "logistics_recovery_drills",
+      "name": "Recovery Drills",
+      "description": "Increase enemy loot drop chance by 4% per rank.",
+      "branch": "Logistics",
+      "tier": 3,
+      "cost": 195,
+      "max_rank": 3,
+      "requires": [
+        "logistics_scrap_refinery"
+      ],
+      "effect": "loot",
+      "value": 0.04,
+      "icon": "L",
+      "unlock_conditions": {},
+      "position": [
+        1550,
+        2040
+      ]
+    },
+    {
+      "id": "logistics_expanded_storage",
+      "name": "Expanded Storage",
+      "description": "Add 2 backpack slots per rank.",
+      "branch": "Logistics",
+      "tier": 3,
+      "cost": 195,
+      "max_rank": 2,
+      "requires": [
+        "logistics_salvage_ledger"
+      ],
+      "effect": "capacity",
+      "value": 2,
+      "icon": "L",
+      "unlock_conditions": {},
+      "position": [
+        1550,
+        2295
+      ]
+    },
+    {
+      "id": "logistics_construction_accounts",
+      "name": "Construction Accounts",
+      "description": "Increase tower damage by 6% per rank.",
+      "branch": "Logistics",
+      "tier": 4,
+      "cost": 230,
+      "max_rank": 3,
+      "requires": [
+        "logistics_recovery_drills"
+      ],
+      "effect": "tower_damage",
+      "value": 0.06,
+      "icon": "L",
+      "unlock_conditions": {},
+      "position": [
+        1550,
+        2550
+      ]
+    },
+    {
+      "id": "logistics_depot_priority",
+      "name": "Depot Priority",
+      "description": "Add 10 starting scrap per rank.",
+      "branch": "Logistics",
+      "tier": 4,
+      "cost": 230,
+      "max_rank": 2,
+      "requires": [
+        "logistics_expanded_storage"
+      ],
+      "effect": "scrap",
+      "value": 10,
+      "icon": "L",
+      "unlock_conditions": {},
+      "position": [
+        1550,
+        2805
+      ]
+    },
+    {
+      "id": "logistics_optimized_rations",
+      "name": "Optimized Rations",
+      "description": "Reduce supply and weapon purchase costs by 6.0% per rank.",
+      "branch": "Logistics",
+      "tier": 5,
+      "cost": 265,
+      "max_rank": 2,
+      "requires": [
+        "logistics_construction_accounts"
+      ],
+      "effect": "supply",
+      "value": 0.06,
+      "icon": "L",
+      "unlock_conditions": {},
+      "position": [
+        1550,
+        3060
+      ]
+    },
+    {
+      "id": "logistics_automated_refining",
+      "name": "Automated Refining",
+      "description": "Increase structure production by 10% per rank.",
+      "branch": "Logistics",
+      "tier": 5,
+      "cost": 265,
+      "max_rank": 2,
+      "requires": [
+        "logistics_depot_priority"
+      ],
+      "effect": "production",
+      "value": 0.1,
+      "icon": "L",
+      "unlock_conditions": {},
+      "position": [
+        1550,
+        3315
+      ]
+    },
+    {
+      "id": "logistics_bulk_procurement",
+      "name": "Bulk Procurement",
+      "description": "Reduce structure costs by 5% per rank.",
+      "branch": "Logistics",
+      "tier": 6,
+      "cost": 300,
+      "max_rank": 2,
+      "requires": [
+        "logistics_optimized_rations"
+      ],
+      "effect": "discount",
+      "value": 0.05,
+      "icon": "L",
+      "unlock_conditions": {},
+      "position": [
+        1550,
+        3570
+      ]
+    },
+    {
+      "id": "logistics_scavenger_routes",
+      "name": "Scavenger Routes",
+      "description": "Increase enemy loot drop chance by 5% per rank.",
+      "branch": "Logistics",
+      "tier": 6,
+      "cost": 300,
+      "max_rank": 2,
+      "requires": [
+        "logistics_automated_refining"
+      ],
+      "effect": "loot",
+      "value": 0.05,
+      "icon": "L",
+      "unlock_conditions": {},
+      "position": [
+        1550,
+        3825
+      ]
+    },
+    {
+      "id": "logistics_reserve_lockers",
+      "name": "Reserve Lockers",
+      "description": "Add 2 backpack slots per rank.",
+      "branch": "Logistics",
+      "tier": 7,
+      "cost": 335,
+      "max_rank": 2,
+      "requires": [
+        "logistics_bulk_procurement"
+      ],
+      "effect": "capacity",
+      "value": 2,
+      "icon": "L",
+      "unlock_conditions": {},
+      "position": [
+        1550,
+        4080
+      ]
+    },
+    {
+      "id": "logistics_precision_contracts",
+      "name": "Precision Contracts",
+      "description": "Increase tower range by 5% per rank.",
+      "branch": "Logistics",
+      "tier": 8,
+      "cost": 370,
+      "max_rank": 2,
+      "requires": [
+        "logistics_scavenger_routes"
+      ],
+      "effect": "tower_range",
+      "value": 0.05,
+      "icon": "L",
+      "unlock_conditions": {},
+      "position": [
+        1550,
+        4335
+      ]
+    },
+    {
+      "id": "logistics_production_lines",
+      "name": "Production Lines",
+      "description": "Increase structure production by 12% per rank.",
+      "branch": "Logistics",
+      "tier": 9,
+      "cost": 405,
+      "max_rank": 2,
+      "requires": [
+        "logistics_reserve_lockers"
+      ],
+      "effect": "production",
+      "value": 0.12,
+      "icon": "L",
+      "unlock_conditions": {},
+      "position": [
+        1550,
+        4590
+      ]
+    },
+    {
+      "id": "logistics_combat_supplies",
+      "name": "Combat Supplies",
+      "description": "Reduce supply and weapon purchase costs by 7.0% per rank.",
+      "branch": "Logistics",
+      "tier": 10,
+      "cost": 440,
+      "max_rank": 2,
+      "requires": [
+        "logistics_precision_contracts"
+      ],
+      "effect": "supply",
+      "value": 0.07,
+      "icon": "L",
+      "unlock_conditions": {},
+      "position": [
+        1550,
+        4845
+      ]
     }
   ],
   "upgrades": [
@@ -923,6 +3011,15 @@
       "range": 1.0,
       "health": 1.3,
       "cost": 0.6
+    },
+    "resonant": {
+      "name": "Resonant",
+      "cost": 0.85,
+      "health": 1.2,
+      "interval": 0.85,
+      "damage": 1.3,
+      "range": 1.1,
+      "perk": "tower_evolution"
     }
   }
 }

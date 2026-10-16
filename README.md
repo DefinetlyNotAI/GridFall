@@ -10,6 +10,7 @@ Requires **Godot 4.4 or newer**, Windows 10/11, and an OpenGL 3.3 compatible GPU
 - The local Windows export is `build/GridFall.exe`; keep `GridFall.pck` beside it. This export runs without installing Godot.
 - Any supported desktop platform: open `project.godot` in Godot and press F6 on `scenes/main.tscn`, or run `godot --path .`.
 - Editor: `./run.ps1 -Editor`.
+- Forward+ rendering: `./run.ps1 -ForwardPlus`. On a Vulkan-capable GPU, Settings additionally exposes screen-space reflections, ambient occlusion, and volumetric lighting. Compatibility rendering remains the default.
 
 ## Controls
 
@@ -21,6 +22,7 @@ Requires **Godot 4.4 or newer**, Windows 10/11, and an OpenGL 3.3 compatible GPU
 | Reload / switch weapons | R / 1, 2 or mouse wheel |
 | Collect nearby loot / use supply station / open door | E |
 | Pulse ability / medkit / grenade | Q / C / G |
+| Restoration matrix (Ascension unlock) | X |
 | Inventory / planning | Tab / B |
 | Begin next wave | Enter |
 | Pause / close interface | Escape |
@@ -37,7 +39,15 @@ The west gate opens after clearing wave 4; the east gate opens after wave 8. The
 
 Kills award scrap and XP, and can drop rolled weapons, consumables, armor, shield packs, or attachments. Pick up with E. The backpack starts with 20 slots; equip or unequip either weapon slot, compare rolls, use equipment, sell, scrap, reorder, or drop items. Weapons have independent optic, barrel, magazine, grip, and elemental-module slots; attachments can be detached and reused. The Shock Blade accepts only an elemental module. Higher weapon rarities roll up to three compatible modifiers. Ammunition is replenished partly between waves; supplies sell more. Each cleared wave offers three temporary upgrades. These disappear when the run ends.
 
-The run ends when the player or core dies. Standard, Seeded, and Challenge runs award TP once, with persistent statistics, records, achievements, and 24 functional research nodes across six branches. The connected research graph supports pan, zoom, search, filters, and prerequisite checks. Research unlocks new weapons and structures or grants bounded upgrades. Research applies to subsequent runs. Challenge reduces player health, increases enemy speed, and disables repairs. Sandbox unlocks all equipment and never awards TP or lifetime records.
+The run ends when the player or core dies. Eligible runs award TP once, with persistent statistics, records, achievements, and 120 functional research nodes across six branches. The connected research graph supports pan, zoom, search, filters, prerequisite checks, and optional respec with a 90% TP refund. Research unlocks equipment or grants bounded upgrades that apply to subsequent runs. Iron Core reduces player health, increases enemy speed, and disables repairs. Sandbox unlocks all equipment and never awards TP or lifetime records.
+
+Scavenger halves starting reserves, removes free wave ammunition, and raises supply prices. Siege Protocol unlocks at a wave-20 record and starts at wave 20 with 1,500 scrap and all approaches open; its TP and cleared-wave achievements use waves actually survived. Daily Defense uses the same UTC date seed for everyone. Research and selected settings still apply.
+
+Ascension becomes available after reaching wave 25 and researching 20 technologies. It optionally resets ordinary research and TP for Ascension Cores while preserving records, achievements, settings, and Ascension purchases. Cores unlock a configurable secondary loadout, a restoration ability, Resonant tower evolution, and starting mutations. Ascension and respec require finishing or abandoning the saved run. Run perks are snapshotted in checkpoints.
+
+From wave 12, optional adaptive factions react to tower, explosive, close-range, or elemental damage. Planning explains the next faction. Adaptation changes composition weights, with blast/status resistance limited to 20%; it can be disabled in Settings for subsequent runs. Elites and a third boss phase add later-wave pressure. Twenty-five achievements track combat, engineering, survival, modes, and Ascension.
+
+Weather includes rain, thunderstorms, and acid-rain events; ceilings shelter the player from acid rain. Settings can disable weather visuals, enable restrained camera motion and sprint stamina, or choose a pixelated Retro or High Contrast scene. UI text remains sharp. Ground materials use procedural normal maps, and bullet marks use a bounded reusable pool.
 
 Content includes nine weapon classes, ten enemy types including a phased Siege Titan every tenth wave, sixteen defensive structures and machines, seven tower targeting modes, two upgrade specializations, elemental effects, chain lightning, penetrating rail fire, projectiles, grenades, shields, and procedural audio. No generated artwork or third-party game assets are included.
 
@@ -46,6 +56,8 @@ Content includes nine weapon classes, ten enemy types including a phased Siege T
 The main-menu editor authors separate custom worlds. It supports seven layers, custom dimensions, paint/erase, rectangles, selection, flood fill, copy/paste, undo/redo, rotation, tile properties, visibility controls, zoom/pan, metadata, JSON import/export, validation, and immediate sandbox playtesting. From a playtest, pause and choose Return to map editor. The normal-run planning interface cannot access terrain authoring tools.
 
 Maps use a versioned JSON format with shared tile identifiers. Save maps independently of progression. Incomplete drafts can be saved and reopened; playtesting additionally requires valid markers and routes. Validation checks known tile types, coordinates, numeric properties, initial routes, and scheduled evolution. Normal-run worlds are built into `scripts/world.gd`; custom map edits cannot make a run eligible for TP. Supply, shop, ammunition, upgrade, generator, and chest markers have runtime behavior. Tower-only and structure-only pads enforce their categories. Wood, brick, concrete, steel, reinforced, and glass structures have distinct durability and resistance.
+
+Generate seeded 8–96 tile worlds in Balanced, Foundry, or Overgrown styles, or begin from Foundry, Relay Station, and Crossroads templates. Generate, template, and shared-map imports can be undone. The community sharing dialog copies a compressed `GRIDFALL1:` code containing the full playable world; another player can paste that code to import it. Imports validate the decoded map before changing the canvas and enforce an 8 MB decompression limit.
 
 ## Saves
 
@@ -87,4 +99,8 @@ Verification performed without test files:
 
 The simulation caps active enemies and spawn queues. Higher enemy caps, very large custom maps, and prolonged runs need more profiling. Release builds may not expose Godot's static-memory counter; the overlay reports it as unavailable in that case.
 
-Advanced optional systems such as Ascension, reactive factions, weather, and community map sharing are not implemented. Art uses restrained engine-native primitives; this is an initial game, not an asset-rich commercial release. Research currently ships 24 real nodes rather than speculative entries for the later 100–150-node expansion.
+The expanded-content run exercised all nine weapons and sixteen structures through wave 17 over 190 simulation seconds, with 152 kills and a boss defeat. Isolated runtime checks covered maximum-rank research effects, Ascension reset/purchases, restoration, Resonant upgrades, perk checkpoint snapshots, 90% respec refunds, adaptive composition, and the new modes. Procedural maps validated at 8×8, 33×33, and 96×96; a generated map round-tripped through its share code. Native Compatibility and Forward+ launches verified weather, Retro rendering, advanced lighting, and the new authoring/research interfaces.
+
+The 250-enemy, 1080p stretch benchmark exposed expensive repeated AI decisions and enemy draw calls. Staggered decisions preserve 60 Hz movement, damage, and cooldown updates; cached combined enemy meshes retain the body geometry with fewer draw calls. Draw-call samples fell from approximately 2,381 to 776–838 and memory settled near 61.6 MB in the development engine. Later samples reached 56–67 FPS, but initial mass-arrival samples still fell to 22 FPS; the 30 FPS stretch minimum is not yet established across that whole scenario. The overlay can report measured render CPU/GPU time where the renderer provides it.
+
+Full-scope completion remains in progress: combat checkpointing, configurable Challenge rules, and the final requirement-by-requirement audit and release profiling remain to be completed. Art uses engine-native primitives and procedural materials.
