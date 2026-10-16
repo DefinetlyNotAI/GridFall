@@ -38,7 +38,9 @@ func _draw() -> void:
 			var rect = Rect2(offset + Vector2(p) * cell_size, Vector2.ONE * (cell_size - (0.6 if not miniature else 0)))
 			var terrain = world.map.layers.ground.get(key, {}).get("type", "concrete")
 			var color = colors.get(terrain, Color("263844")) if visible_layers.ground else Color("14212b")
-			if not editor and key in world.map.build: color = color.lightened(0.11)
+			if not editor and key in world.map.build:
+				var permitted = not game.playing() or not game.challenge("pads_only") or world.map.layers.markers.get(key, {}).get("type", "") in ["pad", "tower_pad", "structure_pad"]
+				if permitted: color = color.lightened(0.11)
 			if visible_layers.structure and world.map.layers.structure.has(key):
 				color = Color("b4844f") if world.map.layers.structure[key].type == "gate" else Color("697b87")
 			draw_rect(rect, color)

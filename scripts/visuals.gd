@@ -238,6 +238,8 @@ func rebuild() -> void:
 			cylinder(geometry, pos + Vector3(0, 0.04, 0), 1.25, 0.08, Color("e46e54"), 0.8)
 			for i in [-1, 1]:
 				box(geometry, pos + Vector3(i * 1.2, 1.8, 0), Vector3(0.2, 3.6, 0.3), Color("9c5549"), 0.3)
+		elif marker.type in ["pad", "tower_pad", "structure_pad"]:
+			cylinder(geometry, pos + Vector3.UP * 0.025, 1.1, 0.05, Color("3c827d"), 0.15)
 	var interactive = world.interactive_tiles()
 	for key in interactive:
 		var tile = interactive[key]

@@ -255,6 +255,8 @@ func show_selection() -> void:
 	for id in mode_ids: mode_picker.add_item(game.Rules.MODES[id].name)
 	settings.add_child(mode_picker)
 	var rule_description = label(settings, game.Rules.MODES.endless.description, 16, Color("a1b7c1"))
+	var configure_rules = button(settings, "Configure Challenge rules", show_challenge_rules)
+	configure_rules.visible = false
 	label(settings, "SEED", 17, Color("7ed9cb"))
 	var seed_input = SpinBox.new()
 	seed_input.min_value = 1
@@ -263,6 +265,7 @@ func show_selection() -> void:
 	settings.add_child(seed_input)
 	var refresh_world = func():
 		var mode_id = mode_ids[mode_picker.selected]
+		configure_rules.visible = mode_id == "challenge"
 		if mode_id == "daily": game.seed_value = game.Rules.daily_seed(); seed_input.value = game.seed_value
 		seed_input.editable = mode_id != "daily"
 		rule_description.text = game.Rules.MODES[mode_id].description
@@ -283,13 +286,36 @@ func show_selection() -> void:
 	preview.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	content.add_child(preview)
 
+func show_challenge_rules() -> void:
+	var dialog = ConfirmationDialog.new()
+	dialog.title = "Challenge rules"
+	dialog.wrap_controls = false
+	dialog.theme = root.theme
+	var body = column(dialog)
+	var fields: Dictionary = {}
+	for id in game.Rules.CHALLENGES:
+		var item = game.Rules.CHALLENGES[id]
+		var check = CheckBox.new()
+		check.text = "%s / +%.0f%% TP" % [item.name, item.weight * 100]
+		check.button_pressed = game.challenge_rules.get(id, false)
+		body.add_child(check)
+		fields[id] = check
+	label(body, "Rules are fixed when the run starts and persist in checkpoints.\nWith no modifiers, the reward multiplier is 1×.", 16, Color("9bb1bd"))
+	dialog.confirmed.connect(func():
+		for id in fields: game.challenge_rules[id] = fields[id].button_pressed
+		notify("Challenge rules configured for the next run.")
+		dialog.queue_free())
+	dialog.canceled.connect(func(): dialog.queue_free())
+	root.add_child(dialog)
+	dialog.popup_centered(Vector2i(650, 560))
+
 func show_planning() -> void:
 	if game.state != "preparation": return
 	notice_time = 0
 	selected_key = ""
 	planning_action = ""
 	replace_key = ""
-	if not game.unlocked(game.catalog.structures[build_id]) or (game.mode == "challenge" and game.catalog.structures[build_id].kind == "repair"): build_id = "sentry"
+	if not game.unlocked(game.catalog.structures[build_id]) or (not game.repairs_allowed() and game.catalog.structures[build_id].kind == "repair"): build_id = "sentry"
 	overlay = "planning"
 	wipe()
 	var body = column(backdrop())
@@ -334,7 +360,7 @@ func refresh_planning() -> void:
 		var item = game.world.construction[selected_key]
 		label(planning_detail, item.name + " · L%d" % item.level, 22)
 		label(planning_detail, "HP %d / %d\nDamage %.0f · Range %.1fm\n%s" % [item.health, item.max_health, item.damage, item.range, item.branch], 17)
-		button(planning_detail, "Repair · %d scrap" % int(ceil((item.max_health - item.health) * 0.15 * (1 - game.bonus("repair_efficiency")))), func(): manage("repair"), game.mode == "challenge")
+		button(planning_detail, "Repair · %d scrap" % int(ceil((item.max_health - item.health) * 0.15 * (1 - game.bonus("repair_efficiency")))), func(): manage("repair"), not game.repairs_allowed())
 		button(planning_detail, "Upgrade: %s · %d" % ["Precision" if item.kind == "tower" else "Reinforce", int(item.cost * game.catalog.structure_upgrades.power.cost * item.level)], func(): manage("power"), item.level >= 4 or item.get("branch_id", "") not in ["", "power"])
 		button(planning_detail, "Upgrade: Gatling · %d" % int(item.cost * game.catalog.structure_upgrades.rapid.cost * item.level), func(): manage("rapid"), item.level >= 4 or item.kind != "tower" or item.get("branch_id", "") not in ["", "rapid"])
 		if game.perk("tower_evolution") > 0 and item.kind == "tower": button(planning_detail, "Upgrade: Resonant · %d" % int(item.cost * 0.85 * item.level), func(): manage("resonant"), item.level >= 4 or item.get("branch_id", "") not in ["", "resonant"])
@@ -357,7 +383,7 @@ func refresh_planning() -> void:
 					notify(reason if reason != "" else "Structure replaced.")
 					selected_key = replace_key
 					planning_action = ""
-				refresh_planning(), not game.unlocked(definition) or (game.mode == "challenge" and definition.kind == "repair"))
+				refresh_planning(), not game.unlocked(definition) or (not game.repairs_allowed() and definition.kind == "repair"))
 			item.tooltip_text = "HP %d · damage %d · range %.0fm%s" % [definition.health, definition.damage, definition.range, "\nResearch: " + definition.tech if definition.tech != "" else ""]
 
 func manage(action: String) -> void:
@@ -384,7 +410,7 @@ func planning_click(p: Vector2i, mouse_button: int, dragging: bool) -> void:
 		selected_key = ""
 		refresh_planning()
 	else:
-		notify("Tile %s · %s" % [key, game.world.placement(p) if game.world.placement(p) != "" else "Construction permitted."])
+		notify("Tile %s · %s" % [key, game.placement(p) if game.placement(p) != "" else "Construction permitted."])
 
 func show_upgrades() -> void:
 	overlay = "upgrades"
@@ -401,7 +427,9 @@ func show_upgrades() -> void:
 		label(col, "%s / %s" % [upgrade.get("icon", str(i + 1)), upgrade.name], 24)
 		label(col, upgrade.get("rarity", "Common"), 16, Color("bba1de") if upgrade.get("rarity") == "Rare" else Color("9ec19b"))
 		label(col, upgrade.description, 19, Color("a7bfca"))
-		if upgrade.has("cap"): label(col, "Maximum total bonus: %.0f%%" % (upgrade.cap * 100), 14, Color("809daa"))
+		if upgrade.has("cap"):
+			var unit = {"health": "HP", "shield": "HP", "regen": "HP/s", "burn": "damage/s"}.get(upgrade.effect, "%")
+			label(col, "Maximum total bonus: %.0f%s" % [upgrade.cap * (100 if unit == "%" else 1), unit], 14, Color("809daa"))
 		button(col, "Select", func(): game.choose_upgrade(i))
 	spacer(body)
 
@@ -671,7 +699,7 @@ func show_pause() -> void:
 	spacer(body)
 	label(body, "PAUSED", 38)
 	button(body, "Resume", func(): game.state = game.previous_state; close_overlay())
-	button(body, "Save run", func(): if game.save_run(): notify("Run saved."), game.previous_state != "preparation" or not game.eligible)
+	button(body, "Save run", func(): if game.save_run(): notify("Run saved."), game.previous_state not in ["preparation", "wave"] or not game.eligible)
 	button(body, "Settings", show_settings)
 	if not game.saved_editor.is_empty(): button(body, "Return to map editor", func(): editor.return_from_playtest())
 	button(body, "Abandon run", func(): confirm_abandon())
@@ -915,7 +943,7 @@ func _process(delta: float) -> void:
 				var item = game.world.construction[key]
 				planning_preview.text = "%s · %s · Level %d · HP %d / %d" % [str(grid.hover), item.name, item.level, item.health, item.max_health]
 			else:
-				var reason = game.world.placement(grid.hover)
+				var reason = game.placement(grid.hover)
 				planning_preview.text = "%s · %s · %d scrap · %d°%s" % [str(grid.hover), game.catalog.structures[build_id].name, game.build_cost(game.catalog.structures[build_id]), build_rotation, " · " + reason if reason != "" else " · Placement permitted"]
 	debug_label.visible = debug_visible
 	if debug_visible:

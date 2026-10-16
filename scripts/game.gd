@@ -7,6 +7,7 @@ const Player = preload("res://scripts/player.gd")
 const Interface = preload("res://scripts/interface.gd")
 const Sound = preload("res://scripts/audio.gd")
 const Rules = preload("res://scripts/run_rules.gd")
+const CombatSave = preload("res://scripts/combat_save.gd")
 const TARGET_MODES = ["Nearest", "Strongest", "Weakest", "First", "Last", "Lowest health", "Highest threat"]
 var catalog: Dictionary
 var profile = Profile.new()
@@ -36,6 +37,8 @@ var restoration_timer = 0.0
 var faction_name = "None"
 var adaptive_run = true
 var run_perks: Dictionary = {}
+var challenge_rules = {"frail": true, "fast": true, "no_repair": true, "scarce_ammo": false, "pads_only": false, "ballistics_only": false, "acid_rain": false}
+var active_challenges: Dictionary = {}
 var stats: Dictionary = {}
 var bonuses: Dictionary = {}
 var weapons: Array = []
@@ -177,13 +180,26 @@ func playing() -> bool:
 	return state in ["preparation", "wave", "completion", "paused"]
 
 func unlocked(definition: Dictionary) -> bool:
+	if challenge("ballistics_only") and definition.has("magazine") and (definition.speed > 0 or definition.magazine == 0): return false
 	return definition.get("tech", "") == "" or profile.rank(definition.tech) > 0 or mode == "sandbox"
 
 func bonus(key: String) -> float:
 	return clampf(float(bonuses.get(key, 0)), 0, float(Rules.CAPS.get(key, 1e12)))
 
 func repairs_allowed() -> bool:
-	return mode != "challenge"
+	return not challenge("no_repair")
+
+func challenge(id: String) -> bool:
+	return mode == "challenge" and bool(active_challenges.get(id, false))
+
+func scarce_ammo() -> bool:
+	return mode == "scavenger" or challenge("scarce_ammo")
+
+func placement(point: Vector2i) -> String:
+	var reason = world.placement(point)
+	if reason != "": return reason
+	if challenge("pads_only") and world.map.layers.markers.get(world.cell_key(point), {}).get("type", "") not in ["pad", "tower_pad", "structure_pad"]: return "Challenge construction is limited to marked pads."
+	return ""
 
 func perk(id: String) -> int:
 	return int(run_perks.get(id, 0))
@@ -209,6 +225,7 @@ func start_run(run_mode: String = "endless", custom: Dictionary = {}, restoring:
 		ui.notify("Reach wave 20 to unlock Siege Protocol.")
 		return
 	mode = run_mode
+	active_challenges = challenge_rules.duplicate() if mode == "challenge" else {}
 	eligible = run_mode != "sandbox" and custom.is_empty()
 	if mode == "daily": seed_value = Rules.daily_seed()
 	var world_index = absi(seed_value) % 2 if mode in ["seeded", "daily"] else selected_map
@@ -221,6 +238,9 @@ func start_run(run_mode: String = "endless", custom: Dictionary = {}, restoring:
 	Engine.time_scale = 1.0
 	reset_atmosphere()
 	world.load_map(value)
+	if challenge("pads_only"):
+		for point in Rules.CHALLENGE_PADS:
+			if world.placement(point) == "": world.map.layers.markers[world.cell_key(point)] = {"type": "pad"}
 	rng.seed = int(value.seed)
 	run_id = Crypto.new().generate_random_bytes(16).hex_encode()
 	bonuses.clear()
@@ -240,7 +260,7 @@ func start_run(run_mode: String = "endless", custom: Dictionary = {}, restoring:
 	elapsed = 0
 	scrap = int(300 + bonus("scrap")) if mode != "sandbox" else 999999
 	max_health = 100 + bonus("health")
-	if mode == "challenge":
+	if challenge("frail"):
 		max_health *= 0.65
 	health = max_health
 	max_core = 600 + bonus("core_health")
@@ -256,7 +276,7 @@ func start_run(run_mode: String = "endless", custom: Dictionary = {}, restoring:
 		weapons[0] = make_weapon(loadout)
 	var secondary = str(profile.data.secondary_loadout)
 	if profile.perk("dual_loadout") > 0 and catalog.weapons.has(secondary) and unlocked(catalog.weapons[secondary]): weapons[1] = make_weapon(secondary)
-	if mode == "scavenger":
+	if scarce_ammo():
 		for weapon in weapons: weapon.reserve = int(weapon.reserve / 2)
 	if mode == "siege":
 		wave = 19
@@ -278,6 +298,11 @@ func start_run(run_mode: String = "endless", custom: Dictionary = {}, restoring:
 	reward_pending = false
 	stats = {"wave": 1, "kills": 0, "bosses": 0, "damage": 0.0, "weapon_damage": 0.0, "tower_damage": 0.0, "ability_damage": 0.0, "built": 0, "earned": 0, "spent": 0, "streak": 0, "difficulty": 1.35 if mode == "challenge" else 1.0}
 	stats.merge({"difficulty": Rules.MODES[mode].difficulty, "mode": mode, "explosive_damage": 0.0, "elemental_damage": 0.0, "close_damage": 0.0, "core_damage_taken": 0.0, "loot_collected": 0, "weapon_usage": {}}, true)
+	if mode == "challenge":
+		stats.difficulty = 1.0
+		for id in active_challenges:
+			if active_challenges[id]: stats.difficulty += Rules.CHALLENGES[id].weight
+		stats.challenge_weight = stats.difficulty - 1
 	visuals.rebuild()
 	player = Player.new()
 	add_child(player)
@@ -628,13 +653,13 @@ func build(p: Vector2i, id: String, facing: int = 0) -> String:
 	if not catalog.structures.has(id):
 		return "Unknown structure."
 	var definition = catalog.structures[id]
-	if mode == "challenge" and definition.kind == "repair": return "Repair stations are disabled by Challenge rules."
+	if not repairs_allowed() and definition.kind == "repair": return "Repair stations are disabled by Challenge rules."
 	var marker = world.map.layers.markers.get(world.cell_key(p), {}).get("type", "")
 	if marker == "tower_pad" and definition.kind != "tower": return "This pad permits attack towers only."
 	if marker == "structure_pad" and definition.kind == "tower": return "This pad is reserved for non-tower structures."
 	if not unlocked(definition):
 		return "Research required: " + definition.tech.replace("_", " ")
-	var reason = world.placement(p)
+	var reason = placement(p)
 	if reason != "":
 		return reason
 	if player != null and world.cell(player.position) == p:
@@ -685,7 +710,7 @@ func manage_structure(key: String, action: String) -> String:
 		item.target_mode = (int(item.target_mode) + 1) % TARGET_MODES.size()
 		return ""
 	if action == "repair":
-		if mode == "challenge":
+		if not repairs_allowed():
 			return "Repairs disabled in Challenge mode."
 		var price = int(ceil((item.max_health - item.health) * 0.15 * (1 - bonus("repair_efficiency"))))
 		if scrap < price:
@@ -721,7 +746,7 @@ func manage_structure(key: String, action: String) -> String:
 
 func move_structure(key: String, destination: Vector2i) -> String:
 	if state != "preparation" or not world.construction.has(key): return "Moving structures requires Preparation."
-	var reason = world.placement(destination)
+	var reason = placement(destination)
 	if reason != "": return reason
 	if world.cell(player.position) == destination: return "Move away from the destination tile."
 	var item = world.construction[key]
@@ -802,13 +827,14 @@ func start_wave() -> bool:
 	event_name = upcoming_event(wave)
 	visuals.atmosphere.environment.fog_density = 0.025 if event_name == "Heavy fog" else 0.006
 	visuals.sun.light_energy = 0.25 if event_name == "Blackout" else 1.5
-	visuals.set_weather(event_name, wave)
+	visuals.set_weather("Acid rain" if challenge("acid_rain") else event_name, wave)
 	ui.notify("WAVE %d%s%s" % [wave, " · " + event_name if event_name != "" else "", "\nCheckpoint could not be saved; the current run is still active." if not checkpoint_ok else ""])
 	audio.cue("wave")
 	return true
 
 func upcoming_event(number: int) -> String:
 	if number % 10 == 0: return "Siege Titan"
+	if challenge("acid_rain"): return "Acid rain"
 	if number % 17 == 0: return "Acid rain"
 	if number % 13 == 0: return "Elite invasion"
 	if number % 11 == 0: return "Explosive swarm"
@@ -828,7 +854,7 @@ func spawn_enemy(id: String, spawn_pos: Vector3 = Vector3.ZERO) -> void:
 	enemy.max_health = enemy.health
 	enemy.damage *= 1 + log(1 + maxf(0, wave - 1) * 0.06)
 	enemy.speed *= minf(1.8, 1 + wave * 0.008)
-	if mode == "challenge":
+	if challenge("fast"):
 		enemy.speed *= 1.25
 	if event_name == "Armored assault":
 		enemy.armor = minf(0.7, enemy.armor + 0.15)
@@ -884,13 +910,13 @@ func finish_wave() -> void:
 			var generated = int(40 * int(item.level) * (1 + bonus("production")))
 			scrap += generated
 			stats.earned += generated
-		if item.kind == "ammo" and mode != "scavenger":
+		if item.kind == "ammo" and not scarce_ammo():
 			for weapon in weapons:
 				if weapon.id == "": continue
 				weapon.reserve = mini(int(weapon.reserve + 60 * item.level), 9999)
 	for weapon in weapons:
 		if weapon.id == "": continue
-		if mode != "scavenger": weapon.reserve = mini(int(weapon.reserve + catalog.weapons[weapon.id].magazine * 2), 9999)
+		if not scarce_ammo(): weapon.reserve = mini(int(weapon.reserve + catalog.weapons[weapon.id].magazine * 2), 9999)
 	for tile in world.interactive_tiles().values():
 		if tile.type == "generator":
 			var generated = int(25 * (1 + bonus("production")))
@@ -909,7 +935,10 @@ func finish_wave() -> void:
 	reward_pending = true
 	upgrades = []
 	for upgrade in catalog.upgrades:
-		if not upgrade.has("cap") or bonus(upgrade.effect) < upgrade.cap: upgrades.append(upgrade.duplicate(true))
+		if upgrade.effect == "medkit_reward" and consumables.medkit >= 99: continue
+		if upgrade.effect == "reserve_reward" and not weapons.any(func(item): return item.id != "" and catalog.weapons[item.id].magazine > 0 and item.reserve < 9999): continue
+		var limit = minf(float(upgrade.get("cap", 1e12)), float(Rules.CAPS.get(upgrade.effect, 1e12)))
+		if bonus(upgrade.effect) < limit: upgrades.append(upgrade.duplicate(true))
 	for i in range(upgrades.size() - 1, 0, -1):
 		var j = rng.randi_range(0, i)
 		var temp = upgrades[i]
@@ -924,12 +953,23 @@ func choose_upgrade(index: int) -> void:
 	if not reward_pending or index < 0 or index >= upgrades.size():
 		return
 	var upgrade = upgrades[index]
-	bonuses[upgrade.effect] = minf(bonus(upgrade.effect) + float(upgrade.value), float(upgrade.get("cap", 1e12)))
+	var applied = float(upgrade.value)
+	if upgrade.effect == "scrap_reward":
+		scrap += int(upgrade.value)
+		stats.earned += int(upgrade.value)
+	elif upgrade.effect == "reserve_reward":
+		for item in weapons:
+			if item.id != "" and catalog.weapons[item.id].magazine > 0: item.reserve = mini(9999, int(item.reserve + upgrade.value))
+	elif upgrade.effect == "medkit_reward": consumables.medkit = mini(99, int(consumables.medkit + upgrade.value))
+	else:
+		var before = bonus(upgrade.effect)
+		bonuses[upgrade.effect] = minf(before + float(upgrade.value), minf(float(upgrade.get("cap", 1e12)), float(Rules.CAPS.get(upgrade.effect, 1e12))))
+		applied = bonus(upgrade.effect) - before
 	if upgrade.effect == "health":
-		max_health += upgrade.value
-		health = minf(max_health, health + upgrade.value)
+		max_health += applied
+		health = minf(max_health, health + applied)
 	if upgrade.effect == "shield":
-		shield += upgrade.value
+		shield += applied
 	reward_pending = false
 	ui.close_overlay()
 	if eligible:
@@ -1202,7 +1242,7 @@ func buy(id: String) -> void:
 			if weapon.id == "": continue
 			weapon.reserve = mini(9999, int(weapon.reserve + catalog.weapons[weapon.id].magazine * 4))
 	elif id == "core":
-		if mode != "challenge": core_health = minf(max_core, core_health + 120)
+		if repairs_allowed(): core_health = minf(max_core, core_health + 120)
 	elif id in ["medkit", "grenade"]:
 		consumables[id] += 1
 	elif catalog.weapons.has(id):
@@ -1438,7 +1478,7 @@ func update_towers(delta: float) -> void:
 		tower.cooldown = maxf(0, tower.cooldown - delta)
 		if tower.cooldown > 0: continue
 		var pos = world.position(world.point(key), 2.1)
-		if tower.kind == "repair" and mode != "challenge":
+		if tower.kind == "repair" and repairs_allowed():
 			tower.cooldown = 1
 			for other_key in world.construction:
 				var other = world.construction[other_key]
@@ -1578,7 +1618,7 @@ func clear_projectiles() -> void:
 	projectiles.clear()
 
 func update_hazards() -> void:
-	if event_name == "Acid rain" and not world.map.layers.height.has(world.cell_key(world.cell(player.position))): damage_player(2, true)
+	if (event_name == "Acid rain" or challenge("acid_rain")) and not world.map.layers.height.has(world.cell_key(world.cell(player.position))): damage_player(2, true)
 	for key in world.map.layers.objects.keys():
 		var tile = world.map.layers.objects[key]
 		if tile.type not in world.HAZARDS: continue
@@ -1598,14 +1638,24 @@ func update_hazards() -> void:
 			visuals.burst(pos, Color("ffad69"), 12, 3)
 
 func save_run() -> bool:
-	if not eligible or state not in ["preparation", "paused"] or (state == "paused" and previous_state != "preparation"):
-		ui.notify("Save between waves in a standard run.")
+	var phase = previous_state if state == "paused" else state
+	if not eligible or phase not in ["preparation", "wave"] or state not in ["preparation", "wave", "paused"]:
+		ui.notify("Save an active standard run or a preparation checkpoint.")
 		return false
-	var record = {"version": 1, "id": run_id, "mode": mode, "world": world.map, "construction": world.construction, "applied": world.applied, "wave": wave, "completed": completed, "scrap": scrap, "health": health, "max_health": max_health, "shield": shield, "core": core_health, "max_core": max_core, "stats": stats, "bonuses": bonuses, "weapons": weapons, "backpack": backpack, "consumables": consumables, "active": active_weapon, "elapsed": elapsed, "position": [player.position.x, player.position.y, player.position.z], "yaw": player.rotation.y, "pitch": player.pitch, "rng": str(rng.state), "level": level, "xp": xp, "next_xp": next_xp, "reward_pending": reward_pending, "upgrades": upgrades, "capacity": capacity}
+	var record = {"version": 2, "id": run_id, "mode": mode, "world": world.map, "construction": world.construction, "applied": world.applied, "wave": wave, "completed": completed, "scrap": scrap, "health": health, "max_health": max_health, "shield": shield, "core": core_health, "max_core": max_core, "stats": stats, "bonuses": bonuses, "weapons": weapons, "backpack": backpack, "consumables": consumables, "active": active_weapon, "elapsed": elapsed, "position": [player.position.x, player.position.y, player.position.z], "yaw": player.rotation.y, "pitch": player.pitch, "rng": str(rng.state), "level": level, "xp": xp, "next_xp": next_xp, "reward_pending": reward_pending, "upgrades": upgrades, "capacity": capacity}
+	record.phase = phase
+	if phase == "wave": record.combat = CombatSave.snapshot(self)
 	record.drops = []
 	for drop in drops: record.drops.append({"item": drop.item, "position": [drop.pos.x, drop.pos.y, drop.pos.z]})
 	record.timers = [fire_timer, reload_timer, ability_timer, hurt_timer]
 	record.extended = {"core_shield": core_shield, "restoration_timer": restoration_timer, "adaptive": adaptive_run, "stamina": player.stamina, "perks": run_perks}
+	record.extended.velocity = CombatSave.vector(player.velocity)
+	record.extended.crouched = player.crouched
+	record.extended.exhausted = player.sprint_exhausted
+	record.extended.challenges = active_challenges
+	if not valid_run(record):
+		ui.notify("Run checkpoint failed validation. The previous save is preserved.")
+		return false
 	var result = write_json("user://run.json", record)
 	resume_available = result or read_run_checkpoint() != null
 	if not result: ui.notify("Cannot save run. Existing save preserved.")
@@ -1666,6 +1716,7 @@ func load_run() -> void:
 	player.position = Vector3(r.position[0], r.position[1], r.position[2])
 	player.rotation.y = r.yaw
 	player.pitch = r.pitch
+	player.camera.rotation.x = player.pitch
 	seed_value = int(r.world.seed)
 	rng.seed = seed_value
 	rng.state = int(r.rng)
@@ -1685,15 +1736,33 @@ func load_run() -> void:
 	restoration_timer = float(extended.get("restoration_timer", 0))
 	adaptive_run = bool(extended.get("adaptive", true))
 	run_perks = extended.get("perks", {}).duplicate()
+	active_challenges = extended.get("challenges", {"frail": true, "fast": true, "no_repair": true} if mode == "challenge" else {}).duplicate()
 	player.stamina = float(extended.get("stamina", 100))
+	player.velocity = CombatSave.unpack(extended.get("velocity", [0, 0, 0]))
+	player.crouched = extended.get("crouched", false)
+	player.sprint_exhausted = extended.get("exhausted", false)
+	player.body_shape.shape.height = 1.1 if player.crouched else 1.8
+	player.body_shape.position.y = 0.55 if player.crouched else 0.9
+	player.camera.position.y = 1.0 if player.crouched else 1.65
 	for drop in r.get("drops", []): place_drop(drop.item, Vector3(drop.position[0], drop.position[1], drop.position[2]))
 	visuals.rebuild()
 	player.refresh_gun()
-	if reward_pending: ui.show_upgrades()
-	ui.notify("Run restored at preparation for wave %d." % (wave + 1))
+	if r.get("phase", "preparation") == "wave":
+		CombatSave.restore(self, r.combat)
+		event_name = upcoming_event(wave)
+		visuals.atmosphere.environment.fog_density = 0.025 if event_name == "Heavy fog" else 0.006
+		visuals.sun.light_energy = 0.25 if event_name == "Blackout" else 1.5
+		visuals.set_weather("Acid rain" if challenge("acid_rain") else event_name, wave)
+		previous_state = "wave"
+		state = "paused"
+		ui.show_pause()
+		ui.notify("Wave %d restored and paused. Resume when ready." % wave)
+	else:
+		if reward_pending: ui.show_upgrades()
+		ui.notify("Run restored at preparation for wave %d." % (wave + 1))
 
 func valid_run(value: Variant) -> bool:
-	if not value is Dictionary or value.get("version") != 1: return false
+	if not value is Dictionary or (value.get("version") != 1 and value.get("version") != 2): return false
 	for key in ["world", "construction", "stats", "bonuses", "consumables"]:
 		if not value.get(key) is Dictionary: return false
 	for key in ["weapons", "backpack", "applied", "position", "upgrades"]:
@@ -1705,11 +1774,19 @@ func valid_run(value: Variant) -> bool:
 	for key in ["core_shield", "restoration_timer", "stamina"]:
 		if extended.has(key) and not profile.numeric(extended[key], 0, 1000000): return false
 	if extended.has("adaptive") and not extended.adaptive is bool: return false
+	if extended.has("velocity") and not CombatSave.valid_vector(self, extended.velocity): return false
+	for key in ["crouched", "exhausted"]:
+		if extended.has(key) and not extended[key] is bool: return false
+	if not extended.get("challenges", {}) is Dictionary: return false
+	for id in extended.get("challenges", {}):
+		if not Rules.CHALLENGES.has(id) or not extended.challenges[id] is bool: return false
 	if not extended.get("perks", {}) is Dictionary: return false
 	for key in extended.get("perks", {}):
 		if not profile.ASCENSION_PERKS.has(key) or not profile.numeric(extended.perks[key], 0, profile.ASCENSION_PERKS[key].max_rank): return false
 	for key in ["explosive_damage", "elemental_damage", "close_damage", "core_damage_taken", "loot_collected"]:
 		if value.stats.has(key) and not profile.numeric(value.stats[key], 0, 1e15): return false
+	for key in ["challenge_weight", "cleared", "reward_wave"]:
+		if value.stats.has(key) and not profile.numeric(value.stats[key], 0, 1e12): return false
 	if value.stats.has("weapon_usage"):
 		if not value.stats.weapon_usage is Dictionary: return false
 		for key in value.stats.weapon_usage:
@@ -1723,7 +1800,11 @@ func valid_run(value: Variant) -> bool:
 	for key in ["yaw", "pitch"]:
 		if not profile.numeric(value.get(key), -1000000, 1000000): return false
 	if value.weapons.size() != 2 or value.position.size() != 3 or value.capacity < 20 or value.capacity > 100 or value.backpack.size() > value.capacity: return false
-	if value.active > 1 or value.completed != value.wave or value.health <= 0 or value.core <= 0: return false
+	if value.active > 1 or value.health <= 0 or value.core <= 0: return false
+	var phase = value.get("phase", "preparation")
+	if phase not in ["preparation", "wave"]: return false
+	if phase == "preparation" and value.completed != value.wave: return false
+	if phase == "wave" and (value.completed + 1 != value.wave or value.reward_pending or not CombatSave.valid(self, value.get("combat"))): return false
 	if not world.validate(value.world).is_empty(): return false
 	var saved_world = World.new()
 	saved_world.load_map(value.world)
@@ -1761,7 +1842,7 @@ func valid_run(value: Variant) -> bool:
 	for item in value.upgrades:
 		if not item is Dictionary or not item.get("name") is String or not item.get("description") is String or not item.get("effect") is String or not profile.numeric(item.get("value"), 0, 1000): return false
 		if item.has("cap") and not profile.numeric(item.cap, 0, 1000): return false
-	return not value.reward_pending or value.upgrades.size() == 3
+	return not value.reward_pending or value.upgrades.size() in [1, 2, 3]
 
 func valid_item(item: Variant, allow_empty: bool = false, allow_consumables: bool = false) -> bool:
 	if not item is Dictionary or not item.get("id") is String or not profile.numeric(item.get("rarity"), 0, 4): return false
@@ -1870,6 +1951,7 @@ func benchmark_update(delta: float) -> void:
 func capture_screen(target: String) -> void:
 	match target:
 		"menu": ui.show_menu()
+		"continue": load_run()
 		"research": ui.show_research()
 		"ascension": ui.show_ascension()
 		"credits": ui.show_credits()
@@ -1882,6 +1964,7 @@ func capture_screen(target: String) -> void:
 		"editor-share": ui.editor.open(); ui.editor.share_dialog()
 		"settings": ui.show_settings()
 		"selection": ui.show_selection()
+		"challenge-rules": ui.show_selection(); ui.show_challenge_rules()
 		"weather", "retro", "contrast", "lighting":
 			start_run("sandbox")
 			profile.data.settings.visual_mode = 1 if target == "retro" else (2 if target == "contrast" else 0)
@@ -1953,7 +2036,7 @@ func _notification(what: int) -> void:
 func quit_game(code: int = 0) -> void:
 	if quitting: return
 	quitting = true
-	if eligible and (state == "preparation" or (state == "paused" and previous_state == "preparation")): save_run()
+	if eligible and (state in ["preparation", "wave"] or (state == "paused" and previous_state in ["preparation", "wave"])): save_run()
 	state = "quitting"
 	if is_instance_valid(audio): audio.stop_all()
 	await get_tree().create_timer(0.12, true, false, true).timeout

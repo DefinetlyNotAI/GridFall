@@ -2877,7 +2877,8 @@
       "value": 0.08,
       "rarity": "Common",
       "icon": "H",
-      "requires": []
+      "requires": [],
+      "cap": 3
     },
     {
       "id": "turret_servos",
@@ -2887,7 +2888,8 @@
       "value": 0.1,
       "rarity": "Common",
       "icon": "S",
-      "requires": []
+      "requires": [],
+      "cap": 3
     },
     {
       "id": "reinforced_vitals",
@@ -2897,7 +2899,8 @@
       "value": 30,
       "rarity": "Uncommon",
       "icon": "R",
-      "requires": []
+      "requires": [],
+      "cap": 500
     },
     {
       "id": "field_medic",
@@ -2907,7 +2910,8 @@
       "value": 0.6,
       "rarity": "Rare",
       "icon": "F",
-      "requires": []
+      "requires": [],
+      "cap": 8
     },
     {
       "id": "salvage_protocol",
@@ -2929,7 +2933,7 @@
       "rarity": "Common",
       "icon": "Q",
       "requires": [],
-      "cap": 8.2
+      "cap": 2
     },
     {
       "id": "shield_cells",
@@ -2939,7 +2943,8 @@
       "value": 30,
       "rarity": "Rare",
       "icon": "S",
-      "requires": []
+      "requires": [],
+      "cap": 300
     },
     {
       "id": "scavenger",
@@ -2950,7 +2955,7 @@
       "rarity": "Uncommon",
       "icon": "S",
       "requires": [],
-      "cap": 0.82
+      "cap": 0.3
     },
     {
       "id": "rangefinder",
@@ -2960,7 +2965,8 @@
       "value": 0.08,
       "rarity": "Common",
       "icon": "R",
-      "requires": []
+      "requires": [],
+      "cap": 1.5
     },
     {
       "id": "weakpoint_optics",
@@ -2971,7 +2977,7 @@
       "rarity": "Uncommon",
       "icon": "W",
       "requires": [],
-      "cap": 0.95
+      "cap": 0.45
     },
     {
       "id": "incendiary_mix",
@@ -2981,7 +2987,8 @@
       "value": 4,
       "rarity": "Rare",
       "icon": "I",
-      "requires": []
+      "requires": [],
+      "cap": 20
     },
     {
       "id": "chill_rounds",
@@ -2993,6 +3000,36 @@
       "icon": "C",
       "requires": [],
       "cap": 0.9
+    },
+    {
+      "name": "Salvage Cache",
+      "description": "Gain 90 scrap immediately.",
+      "effect": "scrap_reward",
+      "value": 90,
+      "rarity": "Common",
+      "icon": "SC",
+      "requires": [],
+      "id": "scrap_reward"
+    },
+    {
+      "name": "Field Resupply",
+      "description": "Add 90 reserve ammunition to each equipped firearm.",
+      "effect": "reserve_reward",
+      "value": 90,
+      "rarity": "Common",
+      "icon": "AM",
+      "requires": [],
+      "id": "reserve_reward"
+    },
+    {
+      "name": "Combat Rations",
+      "description": "Gain one medkit.",
+      "effect": "medkit_reward",
+      "value": 1,
+      "rarity": "Common",
+      "icon": "MK",
+      "requires": [],
+      "id": "medkit_reward"
     }
   ],
   "structure_upgrades": {
