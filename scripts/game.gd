@@ -65,12 +65,29 @@ var autoplay = false
 var benchmark_time = 0.0
 var benchmark_stage = 0
 var benchmark_stats: Array = []
+var benchmark_duration = 180.0
+var benchmark_content = false
+var benchmark_stress = false
+var benchmark_weapon = ""
+var peak_simulation_ms = 0.0
 var pending_map: Dictionary = {}
 var saved_editor: Dictionary = {}
 var resume_available = false
+var quitting = false
 
 func _ready() -> void:
-	catalog = JSON.parse_string(FileAccess.get_file_as_string("res://data/catalog.json"))
+	get_tree().auto_accept_quit = false
+	var content = JSON.parse_string(FileAccess.get_file_as_string("res://data/catalog.json"))
+	if not content is Dictionary or not content.get("weapons") is Dictionary or not content.get("enemies") is Dictionary or not content.get("structures") is Dictionary or not content.get("technologies") is Array or not content.get("upgrades") is Array or not content.get("structure_upgrades") is Dictionary:
+		var layer = CanvasLayer.new()
+		add_child(layer)
+		var message = Label.new()
+		message.text = "GRIDFALL could not load its content catalog.\nRestore data/catalog.json, then restart the game."
+		message.position = Vector2(40, 40)
+		message.add_theme_font_size_override("font_size", 24)
+		layer.add_child(message)
+		return
+	catalog = content
 	profile.load_profile()
 	rng.randomize()
 	configure_input()
@@ -84,20 +101,29 @@ func _ready() -> void:
 	add_child(ui)
 	ui.setup(self)
 	apply_settings()
-	resume_available = FileAccess.file_exists("user://run.json")
+	resume_available = read_run_checkpoint() != null
 	world.load_map(world.preset())
 	visuals.rebuild()
 	menu_camera()
 	ui.show_menu()
 	if not profile.error.is_empty():
 		ui.notify(profile.error)
-	if "--benchmark" in OS.get_cmdline_user_args():
+	benchmark_content = "--benchmark-content" in OS.get_cmdline_user_args()
+	benchmark_stress = "--benchmark-stress" in OS.get_cmdline_user_args()
+	for argument in OS.get_cmdline_user_args():
+		if argument.begins_with("--benchmark-duration="):
+			benchmark_duration = clampf(float(argument.trim_prefix("--benchmark-duration=")), 10, 3600)
+	if "--benchmark" in OS.get_cmdline_user_args() or benchmark_content or benchmark_stress:
 		autoplay = true
 		start_run("sandbox")
 		benchmark_setup()
 	for argument in OS.get_cmdline_user_args():
+		if OS.has_feature("editor") and argument.begins_with("--play="):
+			start_run(argument.trim_prefix("--play="))
 		if argument.begins_with("--capture="):
 			capture_screen(argument.trim_prefix("--capture="))
+		if OS.has_feature("editor") and argument.begins_with("--command-base64="):
+			execute_developer_command(Marshalls.base64_to_utf8(argument.trim_prefix("--command-base64=")))
 
 func configure_input() -> void:
 	var keys = {"forward": KEY_W, "back": KEY_S, "left": KEY_A, "right": KEY_D, "jump": KEY_SPACE, "sprint": KEY_SHIFT, "crouch": KEY_CTRL, "reload": KEY_R, "interact": KEY_E, "ability": KEY_Q, "inventory": KEY_TAB, "planning": KEY_B, "pause": KEY_ESCAPE, "next_wave": KEY_ENTER, "weapon1": KEY_1, "weapon2": KEY_2, "heal": KEY_C, "grenade": KEY_G, "debug": KEY_F3}
@@ -118,8 +144,11 @@ func configure_input() -> void:
 func apply_settings() -> void:
 	var settings = profile.data.settings
 	DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_FULLSCREEN if settings.fullscreen else DisplayServer.WINDOW_MODE_WINDOWED)
+	if not settings.fullscreen and not "--resolution" in OS.get_cmdline_args():
+		DisplayServer.window_set_size([Vector2i(1280, 800), Vector2i(1440, 900), Vector2i(1920, 1080)][int(settings.resolution)])
 	DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_ENABLED if settings.vsync else DisplayServer.VSYNC_DISABLED)
 	Engine.max_fps = int(settings.fps)
+	active_cap = int(settings.enemy_cap)
 	visuals.sun.shadow_enabled = int(settings.quality) > 0
 	audio.apply_volume()
 	if is_instance_valid(ui):
@@ -148,18 +177,28 @@ func bonus(key: String) -> float:
 func start_run(run_mode: String = "endless", custom: Dictionary = {}) -> void:
 	if playing():
 		return
+	if run_mode not in ["endless", "seeded", "sandbox", "challenge"]:
+		ui.notify("Unknown game mode.")
+		return
+	if not custom.is_empty() and run_mode != "sandbox":
+		ui.notify("Custom worlds can only be played in Sandbox.")
+		return
 	mode = run_mode
 	eligible = run_mode in ["endless", "seeded", "challenge"] and custom.is_empty()
-	var value = custom if not custom.is_empty() else world.preset(selected_map, seed_value)
+	var world_index = absi(seed_value) % 2 if mode == "seeded" else selected_map
+	var value = custom if not custom.is_empty() else world.preset(world_index, seed_value)
 	var issues = world.validate(value)
 	if not issues.is_empty():
 		ui.notify("Map rejected: " + "; ".join(issues))
 		return
 	clear_run()
+	Engine.time_scale = 1.0
+	reset_atmosphere()
 	world.load_map(value)
 	rng.seed = int(value.seed)
-	run_id = str(Time.get_unix_time_from_system()) + "-" + str(rng.randi())
+	run_id = Crypto.new().generate_random_bytes(16).hex_encode()
 	bonuses.clear()
+	upgrades.clear()
 	for node in catalog.technologies:
 		if node.effect not in ["weapon", "structure"]:
 			bonuses[node.effect] = bonus(node.effect) + float(node.value) * profile.rank(node.id)
@@ -188,10 +227,12 @@ func start_run(run_mode: String = "endless", custom: Dictionary = {}) -> void:
 	reload_timer = 0
 	ability_timer = 0
 	hurt_timer = 0
+	hazard_timer = 0
+	simulation_ms = 0
 	kill_streak = 0
 	kill_timer = 0
 	reward_pending = false
-	stats = {"wave": 1, "kills": 0, "bosses": 0, "damage": 0.0, "weapon_damage": 0.0, "tower_damage": 0.0, "built": 0, "earned": 0, "spent": 0, "streak": 0, "difficulty": 1.35 if mode == "challenge" else 1.0}
+	stats = {"wave": 1, "kills": 0, "bosses": 0, "damage": 0.0, "weapon_damage": 0.0, "tower_damage": 0.0, "ability_damage": 0.0, "built": 0, "earned": 0, "spent": 0, "streak": 0, "difficulty": 1.35 if mode == "challenge" else 1.0}
 	visuals.rebuild()
 	player = Player.new()
 	add_child(player)
@@ -199,7 +240,7 @@ func start_run(run_mode: String = "endless", custom: Dictionary = {}) -> void:
 	player.position = world.position(world.marker("player"), 0.1)
 	state = "preparation"
 	ui.close_overlay()
-	ui.notify("Preparation — build defenses [B], then begin wave [Enter].")
+	ui.notify("Preparation — build defenses [%s], then begin wave [%s]." % [ui.key_name("planning"), ui.key_name("next_wave")])
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 
 func clear_run() -> void:
@@ -226,16 +267,56 @@ func to_menu() -> void:
 	Engine.time_scale = 1
 	state = "menu"
 	clear_run()
+	saved_editor.clear()
+	reset_atmosphere()
 	world.load_map(world.preset(selected_map, seed_value))
 	visuals.rebuild()
 	menu_camera()
 	ui.show_menu()
 
+func reset_atmosphere() -> void:
+	event_name = ""
+	visuals.atmosphere.environment.fog_density = 0.006
+	visuals.sun.light_energy = 1.5
+
 func make_weapon(id: String, rarity: int = 0) -> Dictionary:
 	var definition = catalog.weapons[id]
-	return {"id": id, "rarity": rarity, "roll": 1.0 + rarity * 0.12 + rng.randf_range(0, 0.08), "ammo": int(definition.magazine), "reserve": int(definition.reserve), "attachment": ""}
+	var pool = ["stabilized", "overclocked", "incendiary", "frost", "vampiric", "volatile", "ricochet"]
+	if definition.speed > 0 or id == "blade": pool.erase("ricochet")
+	var modifiers: Array = []
+	for i in mini(rarity, 3):
+		var index = rng.randi_range(0, pool.size() - 1)
+		modifiers.append(pool[index])
+		pool.remove_at(index)
+	return {"id": id, "rarity": rarity, "roll": 1.0 + rarity * 0.12 + rng.randf_range(0, 0.08), "ammo": int(definition.magazine), "reserve": int(definition.reserve), "attachments": {}, "mods": modifiers}
+
+func modules(item: Dictionary) -> Dictionary:
+	if not item.has("attachments"):
+		item.attachments = {}
+		if item.get("attachment", "") != "": item.attachments[item.attachment] = item.attachment
+		item.erase("attachment")
+	return item.attachments
+
+func magazine_size(item: Dictionary) -> int:
+	if not catalog.weapons.has(item.id): return 0
+	return int(ceil(catalog.weapons[item.id].magazine * (1.3 if modules(item).has("magazine") else 1.0)))
+
+func weapon_stats(item: Dictionary) -> Dictionary:
+	if not catalog.weapons.has(item.id): return {"damage": 0, "interval": 0, "magazine": 0, "reload": 0, "range": 0, "spread": 0}
+	var definition = catalog.weapons[item.id]
+	var equipped = modules(item)
+	var modifiers: Array = item.get("mods", [])
+	return {
+		"damage": definition.damage * item.roll * (1 + bonus("damage")) * (1.2 if equipped.has("barrel") else 1.0),
+		"interval": maxf(0.06, definition.interval / (1 + bonus("fire_rate"))) * (0.8 if "overclocked" in modifiers else 1.0),
+		"magazine": magazine_size(item),
+		"reload": maxf(0.25, definition.reload / (1 + bonus("reload"))) if definition.magazine > 0 else 0.0,
+		"range": definition.range * (1 + bonus("range")),
+		"spread": definition.spread * (0.4 if equipped.has("optic") else 1.0) * (0.75 if equipped.has("grip") else 1.0) * (0.6 if "stabilized" in modifiers else 1.0)
+	}
 
 func weapon_def() -> Dictionary:
+	if weapons[active_weapon].id == "": return {"name": "Unarmed", "damage": 0, "magazine": 0, "reserve": 0, "reload": 0, "range": 0}
 	return catalog.weapons[weapons[active_weapon].id]
 
 func switch_weapon(index: int) -> void:
@@ -250,9 +331,9 @@ func reload_weapon() -> void:
 		return
 	var item = weapons[active_weapon]
 	var definition = weapon_def()
-	if item.ammo >= definition.magazine or item.reserve <= 0 or definition.magazine == 0:
+	if item.ammo >= magazine_size(item) or item.reserve <= 0 or definition.magazine == 0:
 		return
-	reload_timer = maxf(0.25, float(definition.reload) / (1 + bonus("reload")))
+	reload_timer = weapon_stats(item).reload
 	audio.cue("reload")
 
 func ray(from: Vector3, to: Vector3, mask: int = 3, exclude: Array[RID] = []) -> Dictionary:
@@ -265,76 +346,107 @@ func sight(from: Vector3, to: Vector3, exclude: Array[RID] = []) -> bool:
 func fire(direction: Vector3 = Vector3.ZERO) -> void:
 	if state not in ["preparation", "wave"] or fire_timer > 0 or reload_timer > 0:
 		return
+	if weapons[active_weapon].id == "": return
 	var definition = weapon_def()
 	var item = weapons[active_weapon]
+	var modifiers: Array = item.get("mods", [])
+	var equipped = modules(item)
+	var resolved = weapon_stats(item)
 	if definition.magazine > 0 and item.ammo <= 0:
 		reload_weapon()
 		return
 	if definition.magazine > 0:
 		item.ammo -= 1
-	fire_timer = maxf(0.06, definition.interval / (1 + bonus("fire_rate")))
+	fire_timer = resolved.interval
 	var from: Vector3 = player.camera.global_position
 	var aim = -player.camera.global_basis.z if direction == Vector3.ZERO else direction.normalized()
-	var spread = deg_to_rad(float(definition.spread)) * (0.3 if Input.is_action_pressed("aim") or autoplay else 1.0)
-	var amount = float(definition.damage) * float(item.roll) * (1 + bonus("damage"))
-	if item.attachment == "barrel":
-		amount *= 1.2
-	if item.attachment == "optic":
-		spread *= 0.4
+	var spread = deg_to_rad(float(resolved.spread)) * (0.3 if Input.is_action_pressed("aim") or autoplay else 1.0)
+	var amount = float(resolved.damage)
 	if rng.randf() < 0.05 + bonus("critical"):
 		amount *= 1.75
 	for i in int(definition.pellets):
 		var shot = (aim + player.camera.global_basis.x * rng.randf_range(-spread, spread) + player.camera.global_basis.y * rng.randf_range(-spread, spread)).normalized()
 		if definition.speed > 0:
-			launch(from + shot * 0.7, shot * float(definition.speed), amount, definition.splash, "weapon", Color(definition.color), float(definition.range) / definition.speed)
+			launch(from + shot * 0.7, shot * float(definition.speed), amount, definition.splash + (1.2 if "volatile" in modifiers else 0.0), "weapon", Color(definition.color), float(resolved.range) / definition.speed)
 		else:
-			var end = from + shot * float(definition.range) * (1 + bonus("range"))
-			var hit = ray(from, end)
-			if not hit.is_empty():
-				end = hit.position
-				hit_body(hit.collider, amount * (1.5 if hit.collider.has_meta("enemy") and hit.position.y - hit.collider.global_position.y > 1.4 else 1.0), "weapon", from)
-				visuals.burst(end, Color(definition.color), 3, 0.3)
+			var end = from + shot * float(resolved.range)
+			var cursor = from
+			var ignored: Array[RID] = []
+			for penetration in (3 if item.id == "sniper" else 1):
+				var hit = ray(cursor, end, 3, ignored)
+				if hit.is_empty(): break
+				var is_enemy = hit.collider.has_meta("enemy")
+				var uid = int(hit.collider.get_meta("enemy")) if is_enemy else -1
+				ignored.append(hit.collider.get_rid())
+				var hit_damage = amount * (1.5 if is_enemy and hit.position.y - hit.collider.global_position.y > 1.4 else 1.0)
+				if item.id == "shotgun" and enemies.has(uid) and enemies[uid].slow > 0: hit_damage *= 1.25
+				hit_body(hit.collider, hit_damage, "weapon", from)
+				visuals.burst(hit.position, Color(definition.color), 3, 0.3)
+				if "volatile" in modifiers and is_enemy: explosion(hit.position, amount * 0.25, 2.5, "weapon")
+				if not is_enemy and ("ricochet" in modifiers or bonus("ricochet") > 0):
+					var reflected = shot.bounce(hit.normal)
+					var bounce_from = hit.position + hit.normal * 0.06
+					var bounce_end = bounce_from + reflected * resolved.range * 0.6
+					var bounce_hit = ray(bounce_from, bounce_end)
+					if not bounce_hit.is_empty():
+						bounce_end = bounce_hit.position
+						hit_body(bounce_hit.collider, amount * 0.65, "weapon", from)
+					visuals.beam(bounce_from, bounce_end, Color(definition.color))
+				if not is_enemy or penetration == (2 if item.id == "sniper" else 0):
+					end = hit.position
+					break
+				cursor = hit.position + shot * 0.05
 			visuals.beam(from + player.camera.global_basis.x * 0.2 - Vector3(0, 0.1, 0), end, Color(definition.color))
 	if profile.data.settings.shake:
-		player.recoil = minf(0.05, player.recoil + 0.012)
+		player.recoil = minf(0.05, player.recoil + (0.008 if equipped.has("grip") else 0.012))
 	audio.cue("shot", from, 0.5)
 
-func hit_body(body: Object, amount: float, source: String, origin: Vector3 = Vector3.ZERO) -> void:
+func hit_body(body: Object, amount: float, source: String, origin: Vector3 = Vector3.ZERO, effects: Dictionary = {}) -> void:
 	if not is_instance_valid(body):
 		return
 	if body.has_meta("enemy"):
-		damage_enemy(int(body.get_meta("enemy")), amount, source, origin)
+		damage_enemy(int(body.get_meta("enemy")), amount, source, origin, effects)
 	elif body.has_meta("structure"):
-		damage_structure(str(body.get_meta("structure")), amount)
+		if source == "enemy": damage_structure(str(body.get_meta("structure")), amount)
 	elif body.has_meta("tile"):
 		var key = str(body.get_meta("tile"))
 		var tile = world.map.layers.structure.get(key, {})
-		if tile.get("health", 0) > 0:
-			tile.health -= amount
+		if world.can_destroy(world.point(key)):
+			var definition = world.WALL_DEFS[tile.type]
+			var modifiers: Array = effects.get("mods", weapons[active_weapon].get("mods", [])) if source == "weapon" else []
+			var fire_damage = "incendiary" in modifiers
+			tile.health -= amount * (definition.fire if fire_damage else 1 - definition.resistance)
 			if tile.health <= 0:
 				world.map.layers.structure.erase(key)
-				body.queue_free()
+				visuals.remove_fixed(key)
 				world.rebuild_flow()
+			else:
+				var ratio = tile.health / maxf(1, tile.get("max_health", definition.health))
+				var shade = 0.0 if ratio > 0.66 else (0.15 if ratio > 0.33 else 0.3)
+				for mesh in body.get_children():
+					if mesh is MeshInstance3D: mesh.material_override = visuals.material(Color(definition.color).darkened(shade))
 	elif body == player:
-		damage_player(amount)
+		if source == "enemy": damage_player(amount)
 	elif body.has_meta("core"):
-		damage_core(amount)
+		if source == "enemy": damage_core(amount)
 
-func launch(pos: Vector3, velocity: Vector3, damage: float, splash: float, source: String, color: Color, life: float = 4.0) -> void:
+func launch(pos: Vector3, velocity: Vector3, damage: float, splash: float, source: String, color: Color, life: float = 4.0, gravity: float = 0.0) -> void:
 	if projectiles.size() >= 128:
 		return
 	var mesh = visuals.obtain_bolt(pos, color)
-	projectiles.append({"pos": pos, "velocity": velocity, "damage": damage, "splash": splash, "source": source, "life": life, "mesh": mesh, "color": color})
+	var effects = {"mods": weapons[active_weapon].get("mods", []).duplicate(), "elemental": modules(weapons[active_weapon]).has("elemental")} if source == "weapon" else {}
+	projectiles.append({"pos": pos, "velocity": velocity, "gravity": gravity, "damage": damage, "splash": splash, "source": source, "effects": effects, "life": life, "mesh": mesh, "color": color})
 
-func explosion(pos: Vector3, damage: float, radius: float, source: String) -> void:
+func explosion(pos: Vector3, damage: float, radius: float, source: String, effects: Dictionary = {}) -> void:
 	visuals.burst(pos, Color("ffab58"), 16, radius)
 	audio.cue("explosion", pos)
-	if source in ["weapon", "tower", "ability"]:
+	if source in ["weapon", "tower", "ability", "consumable"]:
 		for uid in enemies.keys():
 			var enemy = enemies[uid]
-			var distance = enemy.node.position.distance_to(pos)
-			if distance <= radius and sight(pos + Vector3.UP * 0.2, enemy.node.position + Vector3.UP):
-				damage_enemy(uid, damage * (1 - 0.5 * distance / radius), source, pos)
+			var center = enemy.node.position + Vector3.UP * (1.8 if enemy.type == "boss" else 1.0)
+			var distance = center.distance_to(pos)
+			if distance <= radius and sight(pos + Vector3.UP * 0.2, center):
+				damage_enemy(uid, damage * (1 - 0.5 * distance / radius), source, pos, effects)
 	else:
 		if player.position.distance_to(pos) < radius:
 			damage_player(damage)
@@ -344,7 +456,7 @@ func explosion(pos: Vector3, damage: float, radius: float, source: String) -> vo
 			if world.position(world.point(key)).distance_to(pos) < radius:
 				damage_structure(key, damage)
 
-func damage_enemy(uid: int, amount: float, source: String, origin: Vector3 = Vector3.ZERO) -> void:
+func damage_enemy(uid: int, amount: float, source: String, origin: Vector3 = Vector3.ZERO, effects: Dictionary = {}) -> void:
 	if not enemies.has(uid) or state != "wave":
 		return
 	var enemy = enemies[uid]
@@ -358,19 +470,29 @@ func damage_enemy(uid: int, amount: float, source: String, origin: Vector3 = Vec
 	var actual = minf(enemy.health, amount * (1 - minf(0.8, armor)))
 	enemy.health -= actual
 	stats.damage += actual
-	if source == "tower":
+	if source in ["tower", "tower_dot"]:
 		stats.tower_damage += actual
+	elif source == "ability":
+		stats.ability_damage = stats.get("ability_damage", 0.0) + actual
 	else:
 		stats.weapon_damage += actual
 	if source == "weapon":
 		ui.hit_flash = 0.12
-		if bonus("burn") > 0:
-			enemy.burn = maxf(enemy.burn, bonus("burn"))
-		if bonus("slow") > 0:
-			enemy.slow = maxf(enemy.slow, bonus("slow"))
+		if actual > 1: audio.cue("hit", enemy.node.position, 0.12)
+		visuals.damage_number(enemy.node.position + Vector3.UP * 2.2, actual)
+		var modifiers: Array = effects.get("mods", weapons[active_weapon].get("mods", []))
+		var elemental = effects.get("elemental", modules(weapons[active_weapon]).has("elemental"))
+		if bonus("burn") > 0 or "incendiary" in modifiers or elemental:
+			var burn = bonus("burn") + (4 if "incendiary" in modifiers else 0) + (3 if elemental else 0)
+			if burn >= enemy.burn:
+				enemy.burn = burn
+				enemy.burn_source = "weapon"
+			enemy.burn_time = 3.0
+		if bonus("slow") > 0 or "frost" in modifiers:
+			enemy.slow = maxf(enemy.slow, bonus("slow") + (0.18 if "frost" in modifiers else 0))
 			enemy.slow_time = 2.0
-		if bonus("lifesteal") > 0:
-			health = minf(max_health, health + actual * bonus("lifesteal"))
+		var leech = bonus("lifesteal") + (0.04 if "vampiric" in modifiers else 0)
+		if leech > 0: health = minf(max_health, health + actual * minf(0.3, leech))
 	if enemy.health > 0:
 		return
 	stats.kills += 1
@@ -427,12 +549,16 @@ func damage_structure(key: String, amount: float) -> void:
 		visuals.structure(key)
 		world.rebuild_flow()
 
-func build(p: Vector2i, id: String) -> String:
+func build(p: Vector2i, id: String, facing: int = 0) -> String:
 	if state != "preparation":
 		return "Construction is available only during Preparation."
 	if not catalog.structures.has(id):
 		return "Unknown structure."
 	var definition = catalog.structures[id]
+	if mode == "challenge" and definition.kind == "repair": return "Repair stations are disabled by Challenge rules."
+	var marker = world.map.layers.markers.get(world.cell_key(p), {}).get("type", "")
+	if marker == "tower_pad" and definition.kind != "tower": return "This pad permits attack towers only."
+	if marker == "structure_pad" and definition.kind == "tower": return "This pad is reserved for non-tower structures."
 	if not unlocked(definition):
 		return "Research required: " + definition.tech.replace("_", " ")
 	var reason = world.placement(p)
@@ -448,6 +574,8 @@ func build(p: Vector2i, id: String) -> String:
 	item.max_health = definition.health
 	item.level = 1
 	item.branch = ""
+	item.branch_id = ""
+	item.rotation = facing % 360
 	item.cooldown = 0.0
 	item.target_mode = 0
 	item.invested = cost
@@ -469,6 +597,10 @@ func manage_structure(key: String, action: String) -> String:
 	if state != "preparation" or not world.construction.has(key):
 		return "Structure management requires Preparation."
 	var item = world.construction[key]
+	if action == "rotate":
+		item.rotation = (int(item.get("rotation", 0)) + 90) % 360
+		visuals.structure(key)
+		return ""
 	if action in ["sell", "demolish"]:
 		if action == "sell":
 			scrap += int(item.invested * 0.65 * maxf(0.2, item.health / item.max_health))
@@ -491,28 +623,73 @@ func manage_structure(key: String, action: String) -> String:
 		return ""
 	if item.level >= 4:
 		return "Maximum upgrade level reached."
-	var price = int(item.cost * 0.6 * item.level)
+	if not catalog.structure_upgrades.has(action): return "Unknown upgrade specialization."
+	var branch = catalog.structure_upgrades[action]
+	var current_branch = item.get("branch_id", "")
+	if current_branch != "" and current_branch != action: return "This structure is already specialized in " + item.branch + "."
+	if action == "rapid" and item.kind != "tower": return "Gatling specialization requires an attack tower."
+	var price = int(item.cost * branch.cost * item.level)
 	if scrap < price:
 		return "Not enough scrap."
 	scrap -= price
 	stats.spent += price
 	item.invested += price
 	item.level += 1
-	item.max_health *= 1.3
+	item.max_health *= branch.health
 	item.health = item.max_health
-	if action == "rapid":
-		item.interval = maxf(0.08, item.interval * 0.7)
-		item.branch = "Gatling"
-	else:
-		item.damage *= 1.5
-		item.range *= 1.12
-		item.branch = "Precision"
+	item.interval = maxf(0.08, item.interval * branch.interval) if item.interval > 0 else 0
+	item.damage *= branch.damage
+	item.range *= branch.range
+	item.branch = branch.name if item.kind == "tower" else "Reinforced"
+	item.branch_id = action
 	visuals.structure(key)
 	return ""
+
+func move_structure(key: String, destination: Vector2i) -> String:
+	if state != "preparation" or not world.construction.has(key): return "Moving structures requires Preparation."
+	var reason = world.placement(destination)
+	if reason != "": return reason
+	if world.cell(player.position) == destination: return "Move away from the destination tile."
+	var item = world.construction[key]
+	var marker = world.map.layers.markers.get(world.cell_key(destination), {}).get("type", "")
+	if marker == "tower_pad" and item.kind != "tower": return "This pad permits attack towers only."
+	if marker == "structure_pad" and item.kind == "tower": return "This pad is reserved for non-tower structures."
+	var price = maxi(1, int(ceil(item.cost * 0.1)))
+	if scrap < price: return "Not enough scrap to move this structure."
+	var next_key = world.cell_key(destination)
+	world.construction.erase(key)
+	world.construction[next_key] = item
+	scrap -= price
+	stats.spent += price
+	visuals.structure(key)
+	visuals.structure(next_key)
+	world.rebuild_flow()
+	return ""
+
+func replace_structure(key: String, id: String) -> String:
+	if state != "preparation" or not world.construction.has(key): return "Replacement requires Preparation."
+	if not catalog.structures.has(id) or not unlocked(catalog.structures[id]): return "Research required for this structure."
+	var p = world.point(key)
+	if world.cell(player.position) == p: return "Move away from the structure before replacing it."
+	var old = world.construction[key]
+	world.construction.erase(key)
+	var reason = world.placement(p)
+	world.construction[key] = old
+	if reason != "": return reason
+	var refund = int(old.invested * 0.65 * maxf(0.2, old.health / old.max_health))
+	if scrap + refund < build_cost(catalog.structures[id]): return "Not enough scrap, including the old structure's resale value."
+	world.construction.erase(key)
+	scrap += refund
+	var result = build(p, id, int(old.get("rotation", 0)))
+	if result != "":
+		world.construction[key] = old
+		scrap -= refund
+	return result
 
 func start_wave() -> bool:
 	if state != "preparation" or reward_pending:
 		return false
+	var checkpoint_ok = save_run() if eligible else true
 	wave += 1
 	stats.wave = wave
 	state = "wave"
@@ -531,7 +708,9 @@ func start_wave() -> bool:
 	while budget >= 7 and count < 600:
 		var id = pool[rng.randi_range(0, pool.size() - 1)]
 		if catalog.enemies[id].cost > budget:
-			id = "grunt"
+			var affordable = pool.filter(func(candidate): return catalog.enemies[candidate].cost <= budget)
+			if affordable.is_empty(): break
+			id = affordable[rng.randi_range(0, affordable.size() - 1)]
 		spawn_queue.append(id)
 		budget -= catalog.enemies[id].cost
 		count += 1
@@ -539,7 +718,7 @@ func start_wave() -> bool:
 	event_name = upcoming_event(wave)
 	visuals.atmosphere.environment.fog_density = 0.025 if event_name == "Heavy fog" else 0.006
 	visuals.sun.light_energy = 0.25 if event_name == "Blackout" else 1.5
-	ui.notify("WAVE %d%s" % [wave, " · " + event_name if event_name != "" else ""])
+	ui.notify("WAVE %d%s%s" % [wave, " · " + event_name if event_name != "" else "", "\nCheckpoint could not be saved; the current run is still active." if not checkpoint_ok else ""])
 	audio.cue("wave")
 	return true
 
@@ -572,6 +751,8 @@ func spawn_enemy(id: String, spawn_pos: Vector3 = Vector3.ZERO) -> void:
 	enemy.slow = 0.0
 	enemy.slow_time = 0.0
 	enemy.burn = 0.0
+	enemy.burn_time = 0.0
+	enemy.burn_source = "weapon"
 	enemy.ai = "navigate"
 	enemy.heal_timer = 1.0
 	var node = visuals.enemy(enemy)
@@ -586,10 +767,12 @@ func spawn_enemy(id: String, spawn_pos: Vector3 = Vector3.ZERO) -> void:
 	enemies[enemy.uid] = enemy
 
 func finish_wave() -> void:
-	if state != "wave" or completed >= wave:
+	if state != "wave" or completed >= wave or not spawn_queue.is_empty() or not enemies.is_empty():
 		return
 	completed = wave
 	state = "completion"
+	clear_projectiles()
+	reset_atmosphere()
 	var reward = 65 + mini(wave * 12, 4000)
 	scrap += reward
 	stats.earned += reward
@@ -601,9 +784,15 @@ func finish_wave() -> void:
 			stats.earned += generated
 		if item.kind == "ammo":
 			for weapon in weapons:
+				if weapon.id == "": continue
 				weapon.reserve = mini(int(weapon.reserve + 60 * item.level), 9999)
 	for weapon in weapons:
+		if weapon.id == "": continue
 		weapon.reserve = mini(int(weapon.reserve + catalog.weapons[weapon.id].magazine * 2), 9999)
+	for tile in world.interactive_tiles().values():
+		if tile.type == "generator":
+			scrap += 25
+			stats.earned += 25
 	health = minf(max_health, health + 10)
 	var messages = world.evolve(completed)
 	if not messages.is_empty():
@@ -615,7 +804,9 @@ func finish_wave() -> void:
 		next_xp = int(next_xp * 1.35 + 10)
 	state = "preparation"
 	reward_pending = true
-	upgrades = catalog.upgrades.duplicate(true)
+	upgrades = []
+	for upgrade in catalog.upgrades:
+		if not upgrade.has("cap") or bonus(upgrade.effect) < upgrade.cap: upgrades.append(upgrade.duplicate(true))
 	for i in range(upgrades.size() - 1, 0, -1):
 		var j = rng.randi_range(0, i)
 		var temp = upgrades[i]
@@ -630,7 +821,7 @@ func choose_upgrade(index: int) -> void:
 	if not reward_pending or index < 0 or index >= upgrades.size():
 		return
 	var upgrade = upgrades[index]
-	bonuses[upgrade.effect] = bonus(upgrade.effect) + float(upgrade.value)
+	bonuses[upgrade.effect] = minf(bonus(upgrade.effect) + float(upgrade.value), float(upgrade.get("cap", 1e12)))
 	if upgrade.effect == "health":
 		max_health += upgrade.value
 		health = minf(max_health, health + upgrade.value)
@@ -645,9 +836,20 @@ func defeat(reason: String) -> void:
 	if state != "wave":
 		return
 	state = "results"
+	clear_projectiles()
 	defeat_reason = reason
+	stats.duration = elapsed
+	stats.score = int(stats.kills * 10 + stats.bosses * 100 + completed * 50)
+	stats.records = []
+	stats.achievements = []
+	if eligible:
+		if wave > profile.data.best: stats.records.append("Personal best wave")
+		if stats.score > profile.data.high_score: stats.records.append("Personal best score")
+		var milestones = {"First stand": completed >= 1, "Tenacious": completed >= 10, "Siege breaker": stats.bosses >= 1, "Field engineer": stats.built >= 20, "Century": stats.kills >= 100}
+		for name_value in milestones:
+			if milestones[name_value] and not profile.data.achievements.has(name_value): stats.achievements.append(name_value)
 	last_reward = profile.award(run_id, stats, eligible)
-	if last_reward >= 0:
+	if eligible and last_reward >= 0:
 		remove_run_save()
 	ui.show_results()
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
@@ -665,7 +867,7 @@ func consume(id: String) -> void:
 	else:
 		if state != "wave":
 			return
-		launch(player.camera.global_position, -player.camera.global_basis.z * 18, 120, 6, "weapon", Color("ffb265"), 2)
+		launch(player.camera.global_position, -player.camera.global_basis.z * 18 + Vector3.UP * 4, 120, 6, "consumable", Color("ffb265"), 2, 9.8)
 	consumables[id] -= 1
 	audio.cue("build")
 
@@ -704,9 +906,10 @@ func interact() -> void:
 			audio.cue("build", hit.position)
 			return
 	if state == "preparation":
-		for key in world.map.layers.objects:
-			if world.position(world.point(key)).distance_to(player.position) < 4:
-				var tile = world.map.layers.objects[key]
+		var interactive = world.interactive_tiles()
+		for key in interactive:
+			var tile = interactive[key]
+			if world.position(world.point(key), float(tile.get("elevation", 0))).distance_to(player.position) < 4:
 				if tile.type == "chest":
 					if not tile.get("opened", false):
 						tile.opened = true
@@ -736,11 +939,16 @@ func drop_loot(pos: Vector3, boss: bool = false) -> void:
 	if rng.randf() < 0.55 or boss:
 		item = make_weapon(available[rng.randi_range(0, available.size() - 1)], rarity)
 	else:
-		var kinds = ["medkit", "grenade", "barrel", "optic", "armor", "shield_pack"]
+		var kinds = ["medkit", "grenade", "barrel", "optic", "magazine", "grip", "elemental", "armor", "shield_pack"]
 		item = {"id": kinds[rng.randi_range(0, kinds.size() - 1)], "count": 1, "rarity": rarity}
+	place_drop(item, pos)
+
+func place_drop(item: Dictionary, pos: Vector3) -> bool:
+	if drops.size() >= 80: return false
 	var colors = [Color("c5ced2"), Color("97c86d"), Color("69bae9"), Color("bf89e1"), Color("ffbc62")]
-	var mesh = visuals.box(visuals, pos + Vector3(0, 0.5, 0), Vector3(0.5, 0.5, 0.5), colors[rarity], 0.7)
+	var mesh = visuals.box(visuals, pos + Vector3(0, 0.5, 0), Vector3(0.5, 0.5, 0.5), colors[int(item.rarity)], 0.7)
 	drops.append({"item": item, "pos": pos, "mesh": mesh})
+	return true
 
 func pickup(index: int) -> void:
 	if index < 0 or index >= drops.size():
@@ -748,6 +956,9 @@ func pickup(index: int) -> void:
 	var drop = drops[index]
 	var item = drop.item
 	if item.id in ["medkit", "grenade"]:
+		if consumables[item.id] >= 99:
+			ui.notify("This consumable stack is full.")
+			return
 		consumables[item.id] = mini(99, consumables[item.id] + int(item.get("count", 1)))
 	else:
 		if backpack.size() >= capacity:
@@ -760,6 +971,7 @@ func pickup(index: int) -> void:
 	audio.cue("ui")
 
 func item_name(item: Dictionary) -> String:
+	if item.id == "": return "Unarmed"
 	return catalog.weapons[item.id].name if catalog.weapons.has(item.id) else str(item.id).replace("_", " ").capitalize()
 
 func inventory_action(index: int, action: String) -> void:
@@ -772,20 +984,34 @@ func inventory_action(index: int, action: String) -> void:
 		var slot = int(action.right(1))
 		var old = weapons[slot]
 		weapons[slot] = item
-		backpack[index] = old
+		if old.id == "": backpack.remove_at(index)
+		else: backpack[index] = old
 		reload_timer = 0
 		player.refresh_gun()
 	elif action == "use":
-		if item.id in ["barrel", "optic"]:
-			var old = weapons[active_weapon].attachment
-			weapons[active_weapon].attachment = item.id
+		if item.id in ["barrel", "optic", "magazine", "grip", "elemental"]:
+			if weapons[active_weapon].id == "":
+				ui.notify("Equip a weapon before attaching a module.")
+				return
+			if weapons[active_weapon].id == "blade" and item.id != "elemental":
+				ui.notify("The Shock Blade accepts only an elemental module.")
+				return
+			var equipped = modules(weapons[active_weapon])
+			var old = equipped.get(item.id, "")
+			equipped[item.id] = item.id
 			backpack.remove_at(index)
 			if old != "": backpack.append({"id": old, "count": 1, "rarity": 0})
 		elif item.id == "armor":
+			if bonus("armor") >= 0.65:
+				ui.notify("Armor is already at its 65% limit.")
+				return
 			bonuses.armor = minf(0.65, bonus("armor") + 0.05)
 			backpack.remove_at(index)
 		elif item.id == "shield_pack":
-			shield = minf(200, shield + 30)
+			if shield >= bonus("shield") + 200:
+				ui.notify("Shield overcharge is full.")
+				return
+			shield = minf(bonus("shield") + 200, shield + 30)
 			backpack.remove_at(index)
 	elif action in ["scrap", "sell"]:
 		if action == "sell" and state != "preparation": return
@@ -797,13 +1023,42 @@ func inventory_action(index: int, action: String) -> void:
 	elif action == "drop":
 		if drops.size() >= 80: return
 		var pos = player.position + -player.basis.z * 2
-		var mesh = visuals.box(visuals, pos + Vector3.UP * 0.5, Vector3.ONE * 0.5, Color("8ccbd9"), 0.5)
-		drops.append({"item": item.duplicate(true), "pos": pos, "mesh": mesh})
+		place_drop(item.duplicate(true), pos)
 		backpack.remove_at(index)
+	ui.show_inventory()
+
+func unequip_weapon(index: int) -> void:
+	if not playing() or state == "paused" or index < 0 or index > 1: return
+	if weapons[index].id == "": return
+	if backpack.size() >= capacity:
+		ui.notify("Backpack full.")
+		return
+	backpack.append(weapons[index])
+	weapons[index] = {"id": "", "rarity": 0, "roll": 1, "ammo": 0, "reserve": 0, "attachments": {}, "mods": []}
+	reload_timer = 0
+	player.refresh_gun()
+	ui.show_inventory()
+
+func detach_module(slot: String) -> void:
+	if not playing() or state == "paused": return
+	var item = weapons[active_weapon]
+	var equipped = modules(item)
+	if not equipped.has(slot): return
+	if backpack.size() >= capacity:
+		ui.notify("Backpack full.")
+		return
+	backpack.append({"id": equipped[slot], "count": 1, "rarity": 0})
+	equipped.erase(slot)
+	var excess = maxi(0, int(item.ammo) - magazine_size(item))
+	item.ammo -= excess
+	item.reserve += excess
 	ui.show_inventory()
 
 func buy(id: String) -> void:
 	if state != "preparation":
+		return
+	if id in ["medkit", "grenade"] and consumables[id] >= 99:
+		ui.notify("This consumable stack is full.")
 		return
 	var cost = 35
 	if catalog.weapons.has(id):
@@ -818,6 +1073,7 @@ func buy(id: String) -> void:
 	stats.spent += cost
 	if id == "ammo":
 		for weapon in weapons:
+			if weapon.id == "": continue
 			weapon.reserve = mini(9999, int(weapon.reserve + catalog.weapons[weapon.id].magazine * 4))
 	elif id == "core":
 		if mode != "challenge": core_health = minf(max_core, core_health + 120)
@@ -828,8 +1084,10 @@ func buy(id: String) -> void:
 	ui.show_shop()
 
 func _unhandled_input(event: InputEvent) -> void:
-	if event is InputEventKey and event.pressed and event.physical_keycode == KEY_F4 and mode == "sandbox" and playing():
-		ui.show_sandbox()
+	if not is_instance_valid(ui): return
+	if event is InputEventKey and event.pressed and event.physical_keycode == KEY_F4 and mode == "sandbox" and state in ["preparation", "wave"] and not reward_pending:
+		if ui.overlay == "sandbox": ui.close_overlay()
+		else: ui.show_sandbox()
 	if event.is_action_pressed("debug"):
 		ui.debug_visible = not ui.debug_visible
 	if event.is_action_pressed("pause"):
@@ -875,14 +1133,16 @@ func _physics_process(delta: float) -> void:
 	if reload_timer > 0:
 		reload_timer -= delta
 		if reload_timer <= 0:
+			reload_timer = 0
 			var item = weapons[active_weapon]
-			var amount = mini(int(weapon_def().magazine - item.ammo), int(item.reserve))
+			var amount = mini(magazine_size(item) - int(item.ammo), int(item.reserve))
 			item.ammo += amount
 			item.reserve -= amount
 	for drop in drops:
 		drop.mesh.rotation.y += delta
 		drop.mesh.position.y = 0.6 + sin(elapsed * 2) * 0.1
 	if state != "wave":
+		for item in world.construction.values(): item.cooldown = maxf(0, item.cooldown - delta)
 		return
 	spawn_timer -= delta
 	if spawn_timer <= 0 and not spawn_queue.is_empty() and enemies.size() < active_cap:
@@ -899,6 +1159,7 @@ func _physics_process(delta: float) -> void:
 	if spawn_queue.is_empty() and enemies.is_empty():
 		finish_wave()
 	simulation_ms = (Time.get_ticks_usec() - start) / 1000.0
+	peak_simulation_ms = maxf(peak_simulation_ms, simulation_ms)
 
 func update_enemies(delta: float) -> void:
 	var objective_pos = world.position(world.marker("objective"))
@@ -916,7 +1177,9 @@ func update_enemies(delta: float) -> void:
 		enemy.slow_time -= delta
 		if enemy.slow_time <= 0: enemy.slow = 0.0
 		if enemy.burn > 0:
-			damage_enemy(uid, enemy.burn * delta, "weapon")
+			enemy.burn_time -= delta
+			damage_enemy(uid, enemy.burn * delta, "tower_dot" if enemy.burn_source == "tower" else "dot")
+			if enemy.burn_time <= 0: enemy.burn = 0.0
 			if not enemies.has(uid): continue
 		var target = objective_pos
 		var target_kind = "core"
@@ -945,6 +1208,7 @@ func update_enemies(delta: float) -> void:
 		var destination = target
 		var target_distance = pos.distance_to(target)
 		var reach = float(enemy.range) + (1 if target_kind in ["core", "structure"] else 0)
+		if enemy.type == "boss" and enemy.health < enemy.max_health * 0.5: reach = 14
 		var can_see = true
 		if reach > 4:
 			var hit = ray(pos + Vector3.UP * 1.2, target + Vector3.UP * 1.2, 5, [node.get_rid()])
@@ -963,7 +1227,7 @@ func update_enemies(delta: float) -> void:
 				can_see = true
 			elif world.fixed_solid(next):
 				var tile = world.map.layers.structure.get(next_key, {})
-				if tile.get("health", 0) > 0:
+				if world.can_destroy(next):
 					target_kind = "tile"
 					target_key = next_key
 					target_distance = pos.distance_to(destination)
@@ -992,8 +1256,8 @@ func update_enemies(delta: float) -> void:
 					tile.health -= enemy.damage
 					if tile.health <= 0:
 						world.map.layers.structure.erase(target_key)
+						visuals.remove_fixed(target_key)
 						world.rebuild_flow()
-						visuals.rebuild()
 				visuals.beam(pos + Vector3.UP, target + Vector3.UP, Color(enemy.color), 0.05, 0.12)
 		else:
 			enemy.ai = "navigate"
@@ -1008,6 +1272,7 @@ func update_enemies(delta: float) -> void:
 						if away.length_squared() < 1.6 and away.length_squared() > 0.001:
 							steering += away.normalized() * (1.2 - away.length()) * 0.7
 			var speed = float(enemy.speed) * (1 - minf(0.9, enemy.slow))
+			if world.map.layers.ground.get(world.cell_key(current), {}).get("type") == "water": speed *= 0.5
 			node.velocity = steering.limit_length(1) * speed
 			node.velocity.y = -2
 		node.move_and_slide()
@@ -1018,7 +1283,7 @@ func update_towers(delta: float) -> void:
 	for key in world.construction.keys():
 		if not world.construction.has(key): continue
 		var tower = world.construction[key]
-		tower.cooldown -= delta
+		tower.cooldown = maxf(0, tower.cooldown - delta)
 		if tower.cooldown > 0: continue
 		var pos = world.position(world.point(key), 2.1)
 		if tower.kind == "repair" and mode != "challenge":
@@ -1052,6 +1317,7 @@ func update_towers(delta: float) -> void:
 				target = uid
 		if target < 0: continue
 		var target_pos = enemies[target].node.position + Vector3.UP
+		audio.cue("shot", pos, 0.1)
 		var amount = float(tower.damage) * (1 + bonus("tower_damage"))
 		var interval = maxf(0.1, float(tower.interval))
 		if event_name == "Tower interference": interval *= 1.7
@@ -1069,8 +1335,16 @@ func update_towers(delta: float) -> void:
 		if tower.slow > 0:
 			enemies[target].slow = maxf(enemies[target].slow, tower.slow)
 			enemies[target].slow_time = 2.0
-		if tower.id == "flame": enemies[target].burn = maxf(enemies[target].burn, 8.0)
-		if tower.id in ["rocket", "mortar"]:
+		if tower.id == "flame":
+			if enemies[target].burn <= 8:
+				enemies[target].burn = 8.0
+				enemies[target].burn_source = "tower"
+			enemies[target].burn_time = 3
+		if tower.id == "mortar":
+			var travel_time = maxf(0.5, pos.distance_to(target_pos) / 18)
+			var velocity = (target_pos - pos) / travel_time + Vector3.UP * 0.5 * 16 * travel_time
+			launch(pos, velocity, amount, tower.splash, "tower", Color(tower.color), travel_time + 0.2, 16)
+		elif tower.id == "rocket":
 			var distance = pos.distance_to(target_pos)
 			launch(pos, (target_pos - pos).normalized() * 28, amount, tower.splash, "tower", Color(tower.color), distance / 28 + 0.2)
 		elif tower.id == "tesla":
@@ -1106,7 +1380,7 @@ func update_towers(delta: float) -> void:
 				if uid == target: continue
 				var diff = enemies[uid].node.position + Vector3.UP - pos
 				var along = diff.dot(aim)
-				if along > 0 and along < tower.range and (diff - aim * along).length() < 0.8:
+				if along > 0 and along < tower.range and (diff - aim * along).length() < 0.8 and sight(pos, pos + diff, [visuals.structures[key].get_rid()]):
 					damage_enemy(uid, amount * 0.65, "tower", pos)
 		if tower.id == "mine":
 			world.construction.erase(key)
@@ -1121,26 +1395,35 @@ func update_towers(delta: float) -> void:
 func update_projectiles(delta: float) -> void:
 	for i in range(projectiles.size() - 1, -1, -1):
 		var p = projectiles[i]
-		var end = p.pos + p.velocity * delta
+		var end = p.pos + p.velocity * delta - Vector3.UP * 0.5 * p.gravity * delta * delta
+		p.velocity.y -= p.gravity * delta
 		var hit = ray(p.pos, end, 5 if p.source == "enemy" else 3)
 		p.life -= delta
 		if not hit.is_empty() or p.life <= 0:
 			var impact = hit.position if not hit.is_empty() else end
 			if p.splash > 0:
-				explosion(impact, p.damage, p.splash, p.source)
+				explosion(impact, p.damage, p.splash, p.source, p.effects)
 			elif not hit.is_empty():
-				hit_body(hit.collider, p.damage, p.source, p.pos)
+				hit_body(hit.collider, p.damage, p.source, p.pos, p.effects)
+			if state != "wave": return
 			visuals.release_bolt(p.mesh)
 			projectiles.remove_at(i)
 		else:
 			p.pos = end
 			p.mesh.position = end
+			if p.velocity.length_squared() > 0.01:
+				p.mesh.look_at(end + p.velocity, Vector3.RIGHT if absf(p.velocity.normalized().y) > 0.99 else Vector3.UP)
+
+func clear_projectiles() -> void:
+	for projectile in projectiles:
+		visuals.release_bolt(projectile.mesh)
+	projectiles.clear()
 
 func update_hazards() -> void:
 	for key in world.map.layers.objects.keys():
 		var tile = world.map.layers.objects[key]
 		if tile.type not in world.HAZARDS: continue
-		var pos = world.position(world.point(key))
+		var pos = world.position(world.point(key), float(tile.get("elevation", 0)))
 		var affected = false
 		if player.position.distance_to(pos) < 1.8:
 			if tile.type != "slow": damage_player(8 if tile.type != "mine" else 45)
@@ -1160,8 +1443,11 @@ func save_run() -> bool:
 		ui.notify("Save between waves in a standard run.")
 		return false
 	var record = {"version": 1, "id": run_id, "mode": mode, "world": world.map, "construction": world.construction, "applied": world.applied, "wave": wave, "completed": completed, "scrap": scrap, "health": health, "max_health": max_health, "shield": shield, "core": core_health, "max_core": max_core, "stats": stats, "bonuses": bonuses, "weapons": weapons, "backpack": backpack, "consumables": consumables, "active": active_weapon, "elapsed": elapsed, "position": [player.position.x, player.position.y, player.position.z], "yaw": player.rotation.y, "pitch": player.pitch, "rng": str(rng.state), "level": level, "xp": xp, "next_xp": next_xp, "reward_pending": reward_pending, "upgrades": upgrades, "capacity": capacity}
+	record.drops = []
+	for drop in drops: record.drops.append({"item": drop.item, "position": [drop.pos.x, drop.pos.y, drop.pos.z]})
+	record.timers = [fire_timer, reload_timer, ability_timer, hurt_timer]
 	var result = write_json("user://run.json", record)
-	resume_available = result
+	resume_available = result or read_run_checkpoint() != null
 	if not result: ui.notify("Cannot save run. Existing save preserved.")
 	return result
 
@@ -1172,17 +1458,21 @@ func write_json(path: String, value: Dictionary) -> bool:
 	file.flush()
 	file.close()
 	if FileAccess.file_exists(path):
-		if DirAccess.copy_absolute(path, path + ".bak") != OK: return false
+		var old = JSON.parse_string(FileAccess.get_file_as_string(path))
+		var valid_old = valid_run(old) if path == "user://run.json" else world.validate(old, false).is_empty()
+		if valid_old and DirAccess.copy_absolute(path, path + ".bak") != OK: return false
 	return DirAccess.rename_absolute(path + ".tmp", path) == OK
 
-func load_run() -> void:
-	var record: Variant = null
+func read_run_checkpoint() -> Variant:
 	for path in ["user://run.json", "user://run.json.bak"]:
 		if FileAccess.file_exists(path):
 			var value = JSON.parse_string(FileAccess.get_file_as_string(path))
 			if valid_run(value):
-				record = value
-				break
+				return value
+	return null
+
+func load_run() -> void:
+	var record: Variant = read_run_checkpoint()
 	if record == null:
 		ui.notify("No valid unfinished run found; saved files preserved.")
 		return
@@ -1190,6 +1480,7 @@ func load_run() -> void:
 	start_run(r.mode)
 	world.load_map(r.world)
 	world.construction = r.construction
+	for item in world.construction.values(): item.cooldown = maxf(0, float(item.cooldown))
 	world.applied = r.applied
 	world.rebuild_flow()
 	run_id = r.id
@@ -1218,6 +1509,12 @@ func load_run() -> void:
 	reward_pending = r.reward_pending
 	upgrades = r.upgrades
 	capacity = int(r.capacity)
+	var timers = r.get("timers", [0, 0, 0, 0])
+	fire_timer = float(timers[0])
+	reload_timer = float(timers[1])
+	ability_timer = float(timers[2])
+	hurt_timer = float(timers[3])
+	for drop in r.get("drops", []): place_drop(drop.item, Vector3(drop.position[0], drop.position[1], drop.position[2]))
 	visuals.rebuild()
 	player.refresh_gun()
 	if reward_pending: ui.show_upgrades()
@@ -1232,6 +1529,9 @@ func valid_run(value: Variant) -> bool:
 	if not value.get("id") is String or not value.get("mode") is String or not value.get("rng") is String or not value.rng.is_valid_int(): return false
 	if value.id in profile.data.awarded or value.mode not in ["endless", "seeded", "challenge"]: return false
 	if not value.get("reward_pending") is bool: return false
+	if not value.get("timers", []) is Array or value.get("timers", [0, 0, 0, 0]).size() != 4: return false
+	for timer in value.get("timers", [0, 0, 0, 0]):
+		if not profile.numeric(timer, 0, 3600): return false
 	for key in ["wave", "completed", "scrap", "health", "max_health", "shield", "core", "max_core", "active", "elapsed", "level", "xp", "next_xp", "capacity"]:
 		if not profile.numeric(value.get(key), 0, 1e12): return false
 	for key in ["yaw", "pitch"]:
@@ -1239,6 +1539,8 @@ func valid_run(value: Variant) -> bool:
 	if value.weapons.size() != 2 or value.position.size() != 3 or value.capacity < 20 or value.capacity > 100 or value.backpack.size() > value.capacity: return false
 	if value.active > 1 or value.completed != value.wave or value.health <= 0 or value.core <= 0: return false
 	if not world.validate(value.world).is_empty(): return false
+	var saved_world = World.new()
+	saved_world.load_map(value.world)
 	for number in value.position:
 		if not profile.numeric(number, -10, 1000): return false
 	for key in ["medkit", "grenade"]:
@@ -1247,34 +1549,56 @@ func valid_run(value: Variant) -> bool:
 		if not key is String or not profile.numeric(value.bonuses[key], 0, 1e9): return false
 	for key in ["wave", "kills", "bosses", "damage", "weapon_damage", "tower_damage", "built", "earned", "spent", "streak", "difficulty"]:
 		if not profile.numeric(value.stats.get(key), 0, 1e15): return false
-	for item in value.weapons + value.backpack:
-		if not item is Dictionary or not item.get("id") is String: return false
-		if not profile.numeric(item.get("rarity"), 0, 4): return false
-		if catalog.weapons.has(item.id):
-			var definition = catalog.weapons[item.id]
-			if definition.tech != "" and profile.rank(definition.tech) == 0: return false
-			for key in ["ammo", "reserve", "roll"]:
-				if not profile.numeric(item.get(key), 0, 100000): return false
-			if item.get("attachment") not in ["", "barrel", "optic"]: return false
-		elif item.id not in ["barrel", "optic", "armor", "shield_pack", "medkit", "grenade"]: return false
+	for item in value.weapons:
+		if not valid_item(item, true) or (item.id != "" and not catalog.weapons.has(item.id)): return false
+	for item in value.backpack:
+		if not valid_item(item): return false
+	if not value.get("drops", []) is Array or value.get("drops", []).size() > 80: return false
+	for drop in value.get("drops", []):
+		if not drop is Dictionary or not valid_item(drop.get("item"), false, true) or not drop.get("position") is Array or drop.position.size() != 3: return false
+		for number in drop.position:
+			if not profile.numeric(number, -10, 1000): return false
 	for key in value.construction:
 		if not key is String or key.split(",").size() != 2: return false
+		if not key.split(",")[0].is_valid_int() or not key.split(",")[1].is_valid_int() or saved_world.placement(saved_world.point(key)) != "": return false
 		var item = value.construction[key]
 		if not item is Dictionary or not catalog.structures.has(item.get("id", "")): return false
-		for field in ["health", "max_health", "level", "cooldown", "target_mode", "invested", "focus", "damage", "interval", "range", "splash", "slow", "cost"]:
+		for field in ["health", "max_health", "level", "target_mode", "invested", "focus", "damage", "interval", "range", "splash", "slow", "cost"]:
 			if not profile.numeric(item.get(field), 0, 1e12): return false
+		if not profile.numeric(item.get("cooldown"), -1e12, 1e12): return false
 		if item.get("kind") != catalog.structures[item.id].kind or not item.get("color") is String or not item.get("name") is String or not item.get("branch") is String: return false
+		if item.has("rotation") and not profile.numeric(item.rotation, 0, 359): return false
+		if item.has("branch_id") and item.branch_id not in ["", "power", "rapid"]: return false
 		if not profile.numeric(item.get("last_target"), -1, 1e12) or item.target_mode >= TARGET_MODES.size(): return false
 	for id in value.applied:
 		if not id is String: return false
 	for item in value.upgrades:
 		if not item is Dictionary or not item.get("name") is String or not item.get("description") is String or not item.get("effect") is String or not profile.numeric(item.get("value"), 0, 1000): return false
+		if item.has("cap") and not profile.numeric(item.cap, 0, 1000): return false
 	return not value.reward_pending or value.upgrades.size() == 3
+
+func valid_item(item: Variant, allow_empty: bool = false, allow_consumables: bool = false) -> bool:
+	if not item is Dictionary or not item.get("id") is String or not profile.numeric(item.get("rarity"), 0, 4): return false
+	if item.rarity != int(item.rarity): return false
+	if catalog.weapons.has(item.id) or (item.id == "" and allow_empty):
+		var definition = catalog.weapons.get(item.id, {})
+		if definition.get("tech", "") != "" and profile.rank(definition.tech) == 0: return false
+		for key in ["ammo", "reserve", "roll"]:
+			if not profile.numeric(item.get(key), 0, 100000): return false
+		if item.get("attachment", "") not in ["", "barrel", "optic"] or not item.get("attachments", {}) is Dictionary or not item.get("mods", []) is Array or item.get("mods", []).size() > 3: return false
+		for slot in item.get("attachments", {}):
+			if slot not in ["barrel", "optic", "magazine", "grip", "elemental"] or item.attachments[slot] != slot: return false
+		for modifier in item.get("mods", []):
+			if modifier not in ["stabilized", "overclocked", "incendiary", "frost", "vampiric", "volatile", "ricochet"]: return false
+		return true
+	return item.id in ["barrel", "optic", "magazine", "grip", "elemental", "armor", "shield_pack"] or (allow_consumables and item.id in ["medkit", "grenade"] and profile.numeric(item.get("count", 1), 1, 99))
 
 func remove_run_save() -> void:
 	for path in ["user://run.json", "user://run.json.bak"]:
-		if FileAccess.file_exists(path): DirAccess.remove_absolute(path)
-	resume_available = false
+		if not FileAccess.file_exists(path): continue
+		var record = JSON.parse_string(FileAccess.get_file_as_string(path))
+		if record is Dictionary and record.get("id") == run_id: DirAccess.remove_absolute(path)
+	resume_available = read_run_checkpoint() != null
 
 func benchmark_setup() -> void:
 	for p in [Vector2i(11, 3), Vector2i(13, 3), Vector2i(11, 5), Vector2i(13, 5), Vector2i(11, 8), Vector2i(13, 8), Vector2i(10, 11), Vector2i(14, 11)]:
@@ -1283,18 +1607,57 @@ func benchmark_setup() -> void:
 	print("BENCHMARK fixed tile rejection: ", build(Vector2i(12, 12), "wall"))
 	player.position = world.position(Vector2i(12, 10), 0.1)
 	player.rotation.y = 0
+	if benchmark_content:
+		world.construction.clear()
+		var cells = [Vector2i(11, 3), Vector2i(13, 3), Vector2i(11, 5), Vector2i(13, 5), Vector2i(11, 8), Vector2i(13, 8), Vector2i(10, 11), Vector2i(14, 11), Vector2i(10, 13), Vector2i(14, 13), Vector2i(10, 15), Vector2i(14, 15), Vector2i(9, 10), Vector2i(11, 10), Vector2i(13, 10), Vector2i(9, 14)]
+		var ids = catalog.structures.keys()
+		for i in ids.size(): print("BENCHMARK content ", ids[i], " ", build(cells[i], ids[i]))
+		wave = 9
+		completed = 9
+		world.evolve(9)
+		visuals.rebuild()
+		max_core = 6000
+		core_health = max_core
+	if benchmark_stress:
+		max_core = 60000
+		core_health = max_core
+		max_health = 60000
+		health = max_health
+		wave = 49
+		completed = 49
+		world.evolve(49)
+		visuals.rebuild()
+		start_wave()
+		for i in active_cap: spawn_enemy(catalog.enemies.keys()[i % 9])
 	print("BENCHMARK initialized engine=", Engine.get_version_info().string)
 
 func benchmark_update(delta: float) -> void:
+	if quitting: return
 	benchmark_time += delta
-	if benchmark_time > 180 or (state == "results" and benchmark_time > 10):
-		print("BENCHMARK FINAL ", JSON.stringify({"seconds": elapsed, "completed": completed, "stats": stats, "enemies": enemies.size(), "fps": Engine.get_frames_per_second(), "simulation_ms": simulation_ms, "nav_ms": world.nav_ms, "memory": OS.get_static_memory_usage()}))
-		for enemy in enemies.values(): print("BENCHMARK survivor ", enemy.type, " hp=", enemy.health, " position=", enemy.node.position, " cell=", world.cell(enemy.node.position), " next=", world.next_cell(world.cell(enemy.node.position)), " ai=", enemy.ai)
-		get_tree().quit()
+	if benchmark_time > benchmark_duration or (state == "results" and benchmark_time > 10):
+		print("BENCHMARK FINAL ", JSON.stringify({"seconds": elapsed, "completed": completed, "stats": stats, "enemies": enemies.size(), "fps": Engine.get_frames_per_second(), "simulation_ms": simulation_ms, "peak_simulation_ms": peak_simulation_ms, "nav_ms": world.nav_ms, "memory": OS.get_static_memory_usage(), "resolution": str(DisplayServer.window_get_size()), "samples": benchmark_stats}))
+		for enemy in enemies.values().slice(0, 10): print("BENCHMARK survivor ", enemy.type, " hp=", enemy.health, " position=", enemy.node.position, " cell=", world.cell(enemy.node.position), " next=", world.next_cell(world.cell(enemy.node.position)), " ai=", enemy.ai)
+		quit_game()
 		return
+	if int(benchmark_time / 10) > benchmark_stats.size():
+		benchmark_stats.append({"seconds": benchmark_time, "enemies": enemies.size(), "fps": Engine.get_frames_per_second(), "sim_ms": simulation_ms, "memory": OS.get_static_memory_usage(), "draw_calls": RenderingServer.get_rendering_info(RenderingServer.RENDERING_INFO_TOTAL_DRAW_CALLS_IN_FRAME)})
+	if benchmark_content and state == "wave":
+		var id = catalog.weapons.keys()[mini(8, int(benchmark_time / 20))]
+		if id != benchmark_weapon:
+			benchmark_weapon = id
+			weapons[0] = make_weapon(id, 3)
+			active_weapon = 0
+			reload_timer = 0
+			player.refresh_gun()
+			print("BENCHMARK weapon ", id)
+	if benchmark_stress and state == "wave" and enemies.size() < active_cap:
+		spawn_enemy(catalog.enemies.keys()[int(benchmark_time * 60) % 9])
 	if state == "preparation":
 		if reward_pending:
 			choose_upgrade(0)
+		if eligible:
+			for p in [Vector2i(11, 3), Vector2i(13, 3), Vector2i(11, 5), Vector2i(13, 5), Vector2i(11, 8), Vector2i(13, 8), Vector2i(10, 11), Vector2i(14, 11)]:
+				if not world.construction.has(world.cell_key(p)) and scrap >= 80: build(p, "sentry")
 		if completed > benchmark_stage:
 			benchmark_stage = completed
 			print("BENCHMARK wave cleared=", completed, " core=", core_health, " kills=", stats.kills, " evolved=", world.applied)
@@ -1316,10 +1679,14 @@ func capture_screen(target: String) -> void:
 	match target:
 		"menu": ui.show_menu()
 		"research": ui.show_research()
+		"credits": ui.show_credits()
 		"editor": ui.editor.open()
+		"editor-properties": ui.editor.open(); ui.editor.inspect(Vector2i(7, 6))
+		"editor-new": ui.editor.open(); ui.editor.new_map_dialog()
+		"editor-metadata": ui.editor.open(); ui.editor.metadata_dialog()
 		"settings": ui.show_settings()
 		"selection": ui.show_selection()
-		"planning", "inventory", "wave", "results", "sandbox":
+		"planning", "inventory", "wave", "results", "sandbox", "boss":
 			start_run("sandbox")
 			if target == "planning": ui.show_planning()
 			elif target == "inventory":
@@ -1332,6 +1699,13 @@ func capture_screen(target: String) -> void:
 				completed = 9
 				state = "wave"
 				defeat("Objective destroyed")
+			elif target == "boss":
+				wave = 9
+				completed = 9
+				world.evolve(9)
+				visuals.rebuild()
+				player.position = world.position(Vector2i(12, 10), 0.1)
+				start_wave()
 			else:
 				build(Vector2i(11, 8), "sentry")
 				build(Vector2i(13, 8), "tesla")
@@ -1339,7 +1713,44 @@ func capture_screen(target: String) -> void:
 				for i in 8: spawn_enemy("grunt", world.position(Vector2i(12, 5 + i)))
 	for i in 30: await get_tree().process_frame
 	await RenderingServer.frame_post_draw
-	DirAccess.make_dir_recursive_absolute("res://.godot/captures")
-	var result = get_viewport().get_texture().get_image().save_png("res://.godot/captures/" + target + ".png")
+	var capture_dir = "res://.godot/captures" if OS.has_feature("editor") else "user://captures"
+	DirAccess.make_dir_recursive_absolute(capture_dir)
+	var result = get_viewport().get_texture().get_image().save_png(capture_dir + "/" + target + ".png")
 	print("CAPTURE ", target, " ", error_string(result))
-	get_tree().quit()
+	quit_game()
+
+func execute_developer_command(source: String) -> void:
+	for i in 15: await get_tree().physics_frame
+	var expression = Expression.new()
+	var error = expression.parse(source, ["input", "os", "time"])
+	if error != OK:
+		push_error(expression.get_error_text())
+		quit_game(1)
+		return
+	var result = expression.execute([Input, OS, Time], self, false)
+	if expression.has_execute_failed():
+		push_error(expression.get_error_text())
+		quit_game(1)
+		return
+	print("COMMAND ", var_to_str(result))
+	var frames = 3
+	for argument in OS.get_cmdline_user_args():
+		if argument.begins_with("--command-frames="): frames = clampi(int(argument.trim_prefix("--command-frames=")), 3, 600)
+	for i in frames: await get_tree().physics_frame
+	var enemy_summary: Array = []
+	for enemy in enemies.values().slice(0, 3): enemy_summary.append({"type": enemy.type, "health": enemy.health, "burn": enemy.burn, "slow": enemy.slow})
+	print("STATE ", JSON.stringify({"state": state, "wave": wave, "completed": completed, "health": health, "core": core_health, "scrap": scrap, "enemies": enemies.size(), "enemy_details": enemy_summary, "research": profile.data.research, "tp": profile.data.tp, "bonuses": bonuses, "weapons": weapons, "user_dir": OS.get_user_data_dir(), "player": str(player.position) if is_instance_valid(player) else "none", "grounded": player.is_on_floor() if is_instance_valid(player) else false, "crouched": player.crouched if is_instance_valid(player) else false, "projectiles": projectiles.size(), "stats": stats}))
+	if "--command-stay" in OS.get_cmdline_user_args(): return
+	quit_game()
+
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_WM_CLOSE_REQUEST: quit_game()
+
+func quit_game(code: int = 0) -> void:
+	if quitting: return
+	quitting = true
+	if eligible and (state == "preparation" or (state == "paused" and previous_state == "preparation")): save_run()
+	state = "quitting"
+	if is_instance_valid(audio): audio.stop_all()
+	await get_tree().create_timer(0.12, true, false, true).timeout
+	get_tree().quit(code)

@@ -3,7 +3,24 @@ extends RefCounted
 const SIZE = 3.0
 const TERRAIN = ["concrete", "grass", "dirt", "sand", "road", "metal", "stone", "water"]
 const WALLS = ["wood", "brick", "concrete_wall", "steel", "reinforced", "glass", "permanent", "gate", "door", "window", "barricade", "platform", "ramp", "stairs", "pillar"]
-const MARKERS = ["player", "enemy", "objective", "pad", "supply", "upgrade", "ammo", "generator", "chest", "shop"]
+const WALL_DEFS = {
+	"wood": {"health": 100, "height": 2.2, "color": "77543c", "resistance": 0.0, "fire": 1.7},
+	"brick": {"health": 220, "height": 2.8, "color": "805f52", "resistance": 0.2, "fire": 0.8},
+	"concrete_wall": {"health": 350, "height": 2.8, "color": "68747b", "resistance": 0.4, "fire": 0.6},
+	"steel": {"health": 500, "height": 2.8, "color": "526c79", "resistance": 0.3, "fire": 0.5},
+	"reinforced": {"health": 750, "height": 3.0, "color": "344e5c", "resistance": 0.45, "fire": 0.4},
+	"glass": {"health": 35, "height": 2.8, "color": "66bfd477", "resistance": 0.0, "fire": 1.0},
+	"permanent": {"health": 0, "height": 3.5, "color": "384b59", "resistance": 1.0, "fire": 0.0},
+	"gate": {"health": 0, "height": 3.0, "color": "c28048", "resistance": 1.0, "fire": 0.0},
+	"door": {"health": 180, "height": 2.8, "color": "51656b", "resistance": 0.1, "fire": 0.8},
+	"window": {"health": 150, "height": 2.8, "color": "637e87", "resistance": 0.15, "fire": 0.8},
+	"barricade": {"health": 140, "height": 1.6, "color": "77624e", "resistance": 0.1, "fire": 1.4},
+	"platform": {"health": 240, "height": 0.5, "color": "5a727e", "resistance": 0.2, "fire": 0.7},
+	"ramp": {"health": 250, "height": 1.4, "color": "5a727e", "resistance": 0.2, "fire": 0.7},
+	"stairs": {"health": 250, "height": 1.4, "color": "5a727e", "resistance": 0.2, "fire": 0.7},
+	"pillar": {"health": 300, "height": 3.5, "color": "435d6b", "resistance": 0.25, "fire": 0.6}
+}
+const MARKERS = ["player", "enemy", "objective", "pad", "tower_pad", "structure_pad", "supply", "upgrade", "ammo", "generator", "chest", "shop"]
 const HAZARDS = ["fire", "acid", "spikes", "electric", "slow", "mine"]
 var map: Dictionary = {}
 var construction: Dictionary = {}
@@ -63,6 +80,7 @@ func preset(index: int = 0, seed_value: int = 104729) -> Dictionary:
 	layers.markers["22,12"] = {"type": "enemy", "unlock": 8}
 	layers.objects["11,14"] = {"type": "supply"}
 	layers.objects["13,14"] = {"type": "shop"}
+	for key in ["11,14", "13,14", "3,11", "3,13", "21,11", "21,13"]: build.erase(key)
 	layers.structure["2,12"] = {"type": "gate", "height": 3.0, "health": 0, "locked": true}
 	layers.structure["22,12"] = {"type": "gate", "height": 3.0, "health": 0, "locked": true}
 	return {"version": 1, "id": "foundry" if index == 0 else "relay", "name": "The Foundry" if index == 0 else "Relay Station", "description": "An industrial crossroad. West opens after wave 4; east after wave 8.", "author": "GRIDFALL", "width": width, "height": height, "seed": seed_value, "theme": index, "layers": layers, "build": build, "events": [{"id": "west", "round": 4, "remove": ["2,12"], "build": ["3,11", "3,13"], "message": "West gate opened. A second approach is active."}, {"id": "east", "round": 8, "remove": ["22,12"], "build": ["21,11", "21,13"], "message": "East gate opened. Defend all three approaches."}]}
@@ -87,14 +105,29 @@ func spawns(round_number: int) -> Array:
 			found.append(point(key))
 	return found
 
+func interactive_tiles() -> Dictionary:
+	var result = map.layers.objects.duplicate()
+	for key in map.layers.markers:
+		if map.layers.markers[key].type in ["supply", "upgrade", "ammo", "generator", "chest", "shop"]:
+			result[key] = map.layers.markers[key]
+	return result
+
 func fixed_solid(p: Vector2i) -> bool:
 	if not inside(p):
 		return true
-	var tile = map.layers.structure.get(cell_key(p), {})
+	if not map.layers.ground.has(cell_key(p)): return true
+	var key = cell_key(p)
+	if map.layers.objects.has(key) and map.layers.objects[key].type not in HAZARDS: return true
+	if map.layers.markers.get(key, {}).get("type") in ["supply", "upgrade", "ammo", "generator", "chest", "shop"]: return true
+	var tile = map.layers.structure.get(key, {})
 	return not tile.is_empty() and tile.get("type") not in ["platform", "ramp", "stairs"]
 
 func solid(p: Vector2i) -> bool:
 	return fixed_solid(p) or (construction.has(cell_key(p)) and construction[cell_key(p)].kind not in ["trap"])
+
+func can_destroy(p: Vector2i) -> bool:
+	var tile = map.layers.structure.get(cell_key(p), {})
+	return not tile.is_empty() and WALL_DEFS.get(tile.type, {}).get("health", 0) > 0 and tile.get("health", 0) > 0 and not tile.get("locked", false)
 
 func rebuild_flow() -> void:
 	var start = Time.get_ticks_usec()
@@ -122,8 +155,7 @@ func navigation_field(target: Vector2i) -> Dictionary:
 			if not inside(next) or result.has(key):
 				continue
 			if fixed_solid(next):
-				var tile = map.layers.structure.get(key, {})
-				if float(tile.get("health", 0)) <= 0:
+				if not can_destroy(next):
 					continue
 			result[key] = int(result[cell_key(p)]) + 1
 			queue.append(next)
@@ -152,7 +184,7 @@ func placement(p: Vector2i) -> String:
 		return "Outside world boundaries."
 	if not key in map.build or fixed_solid(p):
 		return "Fixed world, protected route, or locked region."
-	if (map.layers.markers.has(key) and map.layers.markers[key].type != "pad") or map.layers.objects.has(key):
+	if (map.layers.markers.has(key) and map.layers.markers[key].type not in ["pad", "tower_pad", "structure_pad"]) or map.layers.objects.has(key):
 		return "This tile is reserved for a world object."
 	for event in map.events:
 		if key in event.get("remove", []):
@@ -177,7 +209,7 @@ func evolve(round_number: int) -> Array:
 		rebuild_flow()
 	return messages
 
-func validate(value: Variant) -> Array:
+func validate(value: Variant, require_playable: bool = true) -> Array:
 	var issues: Array = []
 	if not value is Dictionary or value.get("version") != 1:
 		return ["Unsupported or missing map format version."]
@@ -213,7 +245,7 @@ func validate(value: Variant) -> Array:
 			var tile = value.layers[layer][key]
 			if not tile is Dictionary or not tile.get("type") is String:
 				return ["Invalid tile definition at " + key]
-			for field in ["height", "elevation", "health", "rotation", "unlock"]:
+			for field in ["height", "elevation", "health", "max_health", "rotation", "unlock"]:
 				if tile.has(field):
 					if not (tile[field] is int or tile[field] is float) or not is_finite(float(tile[field])) or float(tile[field]) < 0 or float(tile[field]) > 100000:
 						return ["Invalid " + field + " at " + key]
@@ -233,10 +265,11 @@ func validate(value: Variant) -> Array:
 				if tile.type != "enemy" and tile.has("unlock"): issues.append("Only enemy spawn markers may have an unlock wave: " + key)
 			if float(tile.get("height", 1)) < 0 or float(tile.get("elevation", 0)) < 0:
 				issues.append("Invalid elevation at " + key)
-	for kind in counts:
-		if counts[kind] == 0 or (kind != "enemy" and counts[kind] != 1):
-			issues.append("Map needs %s %s marker." % ["at least one" if kind == "enemy" else "exactly one", kind])
-	if initial_spawns == 0: issues.append("Map needs a reachable enemy spawn active from the first wave.")
+	if require_playable:
+		for kind in counts:
+			if counts[kind] == 0 or (kind != "enemy" and counts[kind] != 1):
+				issues.append("Map needs %s %s marker." % ["at least one" if kind == "enemy" else "exactly one", kind])
+		if initial_spawns == 0: issues.append("Map needs a reachable enemy spawn active from the first wave.")
 	if not issues.is_empty():
 		return issues
 	var probe = get_script().new()
@@ -244,20 +277,27 @@ func validate(value: Variant) -> Array:
 	for key in value.build:
 		if not key is String or key.split(",").size() != 2 or not probe.inside(probe.point(key)):
 			return ["Invalid construction permission coordinate."]
+		if not key.split(",")[0].is_valid_int() or not key.split(",")[1].is_valid_int(): return ["Invalid construction permission coordinate."]
 	for key in value.layers.markers:
+		if not require_playable: break
 		var kind = value.layers.markers[key].type
 		var p = probe.point(key)
+		if kind in ["pad", "tower_pad", "structure_pad"] and (probe.fixed_solid(p) or key not in value.build): issues.append("Invalid construction pad at " + key)
 		if kind in ["player", "objective", "enemy"] and probe.fixed_solid(p):
 			if not value.layers.markers[key].has("unlock"):
 				issues.append("Blocked mandatory marker at " + key)
 		if kind in ["player", "enemy"] and not value.layers.markers[key].has("unlock") and not probe.flow.has(key):
 			issues.append("No route to objective from " + key)
+	for key in value.layers.objects:
+		if value.layers.objects[key].type not in HAZARDS:
+			if value.layers.structure.has(key) or value.layers.markers.has(key): issues.append("Overlapping incompatible object at " + key)
 	var ids: Array = []
 	for event in value.events:
 		if not event is Dictionary or not event.get("id") is String or not event.get("round") is float and not event.get("round") is int:
 			return ["Malformed world evolution event."]
 		if event.id in ids or event.round < 1 or not event.get("remove", []) is Array or not event.get("build", []) is Array:
 			return ["Invalid world evolution event."]
+		if not is_finite(float(event.round)) or event.round > 1000000 or event.round != int(event.round): return ["Evolution round must be a positive whole number up to 1000000."]
 		if not event.get("message") is String:
 			return ["World evolution event needs a message."]
 		for key in event.get("remove", []) + event.get("build", []):
@@ -274,6 +314,7 @@ func validate(value: Variant) -> Array:
 				issues.append("Evolution overlaps construction permissions at " + key)
 	probe.evolve(2147483647)
 	for key in value.layers.markers:
+		if not require_playable: break
 		if value.layers.markers[key].type == "enemy" and not probe.flow.has(key):
 			issues.append("Evolution leaves an unreachable enemy spawn at " + key)
 	return issues

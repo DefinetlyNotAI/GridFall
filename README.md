@@ -7,6 +7,7 @@ A single-player first-person horde defense game made with Godot 4. Survive endle
 Requires **Godot 4.4 or newer**, Windows 10/11, and an OpenGL 3.3 compatible GPU. Development verification uses Godot 4.7.2. No .NET, Python, Node, asset downloads, or external services are needed to play.
 
 - Windows: double-click `run.cmd`, or run `./run.ps1` in PowerShell. The launcher uses `GODOT_BIN`, Godot on PATH, or the locally cached development engine.
+- The local Windows export is `build/GridFall.exe`; keep `GridFall.pck` beside it. This export runs without installing Godot.
 - Any supported desktop platform: open `project.godot` in Godot and press F6 on `scenes/main.tscn`, or run `godot --path .`.
 - Editor: `./run.ps1 -Editor`.
 
@@ -32,11 +33,11 @@ Movement and interaction keys can be rebound in Settings. Mouse sensitivity, fie
 
 Deploy into The Foundry or Relay Station. Start with a primary weapon, service pistol, 300 scrap, two medkits, and two grenades. Use preparation to build on permitted tiles, buy supplies, repair, upgrade, or sell structures. Construction and all structure management stop during combat. The core, roads, fixed walls, portals, and scheduled gate tiles are protected.
 
-The west gate opens after clearing wave 4; the east gate opens after wave 8. These changes happen once, before the next preparation phase. Enemies can destroy player defenses and designated destructible sandbox geometry. Permanent world geometry ignores damage.
+The west gate opens after clearing wave 4; the east gate opens after wave 8. These changes and additional build permissions happen once, before the next preparation phase. Enemies can destroy player defenses and designated destructible sandbox geometry. Permanent world geometry ignores damage. Defenses can be rotated, moved for a 10% base-cost fee, or replaced using their remaining resale value. All management actions require preparation.
 
-Kills award scrap and XP, and can drop rolled weapons, consumables, armor, shield packs, or attachments. Pick up with E. The backpack starts with 20 slots; equip either weapon slot, compare rolls, attach an optic or barrel, use equipment, sell, scrap, reorder, or drop items in the inventory. Ammunition is replenished partly between waves; supplies sell more. Each cleared wave offers three temporary upgrades. These disappear when the run ends.
+Kills award scrap and XP, and can drop rolled weapons, consumables, armor, shield packs, or attachments. Pick up with E. The backpack starts with 20 slots; equip or unequip either weapon slot, compare rolls, use equipment, sell, scrap, reorder, or drop items. Weapons have independent optic, barrel, magazine, grip, and elemental-module slots; attachments can be detached and reused. The Shock Blade accepts only an elemental module. Higher weapon rarities roll up to three compatible modifiers. Ammunition is replenished partly between waves; supplies sell more. Each cleared wave offers three temporary upgrades. These disappear when the run ends.
 
-The run ends when the player or core dies. Standard, Seeded, and Challenge runs award TP once, with persistent statistics and 24 functional research nodes across six branches. Research unlocks new weapons and structures or grants bounded upgrades. Research applies to subsequent runs. Challenge reduces player health, increases enemy speed, and disables repairs. Sandbox unlocks all equipment and never awards TP or lifetime records.
+The run ends when the player or core dies. Standard, Seeded, and Challenge runs award TP once, with persistent statistics, records, achievements, and 24 functional research nodes across six branches. The connected research graph supports pan, zoom, search, filters, and prerequisite checks. Research unlocks new weapons and structures or grants bounded upgrades. Research applies to subsequent runs. Challenge reduces player health, increases enemy speed, and disables repairs. Sandbox unlocks all equipment and never awards TP or lifetime records.
 
 Content includes nine weapon classes, ten enemy types including a phased Siege Titan every tenth wave, sixteen defensive structures and machines, seven tower targeting modes, two upgrade specializations, elemental effects, chain lightning, penetrating rail fire, projectiles, grenades, shields, and procedural audio. No generated artwork or third-party game assets are included.
 
@@ -44,23 +45,23 @@ Content includes nine weapon classes, ten enemy types including a phased Siege T
 
 The main-menu editor authors separate custom worlds. It supports seven layers, custom dimensions, paint/erase, rectangles, selection, flood fill, copy/paste, undo/redo, rotation, tile properties, visibility controls, zoom/pan, metadata, JSON import/export, validation, and immediate sandbox playtesting. From a playtest, pause and choose Return to map editor. The normal-run planning interface cannot access terrain authoring tools.
 
-Maps use a versioned JSON format with shared tile identifiers. Save maps independently of progression. Import and playtest validate mandatory markers, known tile types, coordinates, numeric properties, initial routes, and scheduled evolution. Normal-run worlds are built into `scripts/world.gd`; custom map edits cannot make a run eligible for TP.
+Maps use a versioned JSON format with shared tile identifiers. Save maps independently of progression. Incomplete drafts can be saved and reopened; playtesting additionally requires valid markers and routes. Validation checks known tile types, coordinates, numeric properties, initial routes, and scheduled evolution. Normal-run worlds are built into `scripts/world.gd`; custom map edits cannot make a run eligible for TP. Supply, shop, ammunition, upgrade, generator, and chest markers have runtime behavior. Tower-only and structure-only pads enforce their categories. Wood, brick, concrete, steel, reinforced, and glass structures have distinct durability and resistance.
 
 ## Saves
 
 Godot stores data in its `user://` directory, normally `%APPDATA%/Godot/app_userdata/GRIDFALL/` on Windows. `profile.json` contains research, TP, statistics, settings, and loadout. `maps/` is the default custom-world directory. Writes use a temporary file, replacement, and a backup; invalid primary profiles fall back to a valid backup.
 
-Standard runs autosave after a cleared wave and after the upgrade choice. Pause during preparation to save manually. Continue restores the preparation checkpoint, including world evolution, structures, equipment, random state, player/core health, temporary upgrades, and pending reward choices. Mid-combat checkpoints are deliberately unavailable. Abandoning a run awards no TP.
+Standard runs autosave after a cleared wave, after the upgrade choice, and immediately before starting the next wave. Closing during preparation, including while paused, also saves. Pause during preparation to save manually. Continue restores the preparation checkpoint, including world evolution, structures, equipment, dropped loot, random state, player/core health, temporary upgrades, and pending reward choices. A valid backup can be continued even if the primary file is missing. Sandbox defeat or abandonment preserves an unrelated standard-run checkpoint. Mid-combat checkpoints are deliberately unavailable. Abandoning a run awards no TP.
 
 ## Build
 
-Install Godot's matching Windows export templates using its editor. Choose Project → Export → Windows Desktop → Export Project, or run:
+Install Godot's matching Windows export templates using its editor. They are installed on this development machine. Choose Project → Export → Windows Desktop → Export Project, or run:
 
 ```powershell
-godot --headless --path . --export-release "Windows Desktop" build/GridFall.exe
+./run.ps1 -Export
 ```
 
-The Windows preset exports the game and data catalog. `build/` and Godot's cache are ignored by Git. Linux support uses the same source; add a Linux export preset in Godot to package it.
+The Windows preset exports the game and data catalog. `build/` and Godot's cache are ignored by Git. Linux support uses the same source; add a Linux export preset in Godot to package it. Linux exports have not been verified. Godot and third-party engine license notices are available in Settings → Credits & licenses.
 
 ## Development and verification
 
@@ -73,8 +74,17 @@ No test files or extra documentation are maintained. The development benchmark r
 godot --headless --path . --fixed-fps 60 -- --benchmark
 ```
 
-The benchmark logs wave clears, damage, kills, navigation time, simulation time, and memory. Rendered captures can be generated with `godot --path . -- --capture=menu` (also `selection`, `planning`, `inventory`, `editor`, `research`, `settings`, `wave`, `results`, `sandbox`); captures go into ignored `.godot/captures/`.
+The benchmark logs wave clears, damage, kills, navigation time, simulation time, and memory. `--benchmark-content` exercises every weapon and structure; `--benchmark-stress` maintains the configured enemy cap. `--benchmark-duration=30` changes its duration. Rendered captures can be generated with `godot --path . -- --capture=menu` (also `selection`, `planning`, `inventory`, `editor`, `research`, `settings`, `wave`, `boss`, `results`, `sandbox`, `credits`); source captures go into ignored `.godot/captures/`. Cosmetic randomness is independent of seeded gameplay.
 
-Current verification: Godot parser check and rendered launches passed; a 180-second simulated combat run cleared 11 waves, defeated one boss, applied both gate events, recorded 101 kills, and exercised player/tower damage. This is not a claim of long-term balance or a hardware-independent 60 FPS guarantee. Full visual/runtime review and persistence checks remain in progress.
+Verification performed without test files:
+
+- Godot parser/import checks, rendered menu/editor/inventory/research/settings/combat captures, and Windows export launch.
+- A fresh standard run started with 300 scrap, built defenses using actual earnings, cleared 12 waves, killed a boss, and ended naturally on wave 13 with 122 kills and 112 TP. Buying the 90-TP SMG research and restarting restored its unlock in a fresh run, with temporary progress reset.
+- A 190-second content scenario exercised all nine weapons and sixteen structures through waves 10–17. A separate 300-second core scenario cleared 14 waves with 155 kills.
+- A 30-second rendered stress scenario maintained 100 enemies with sampled rates of 96–119 FPS on an RTX 3050 6 GB laptop GPU. Simulation samples were approximately 3.8–5.6 ms; initial spikes reached roughly 44 ms. These measurements are not a universal performance or long-term balance guarantee.
+- Live movement, collision, jump, crouch, shooting, melee, and plasma damage; attachment reload/detach ammunition conservation; projectile effect snapshots; loot/equipment save/restore; duplicate-award rejection; invalid-map rejection; and backup recovery in isolated data directories.
+- An actual tower-combat wave checkpoint restored its pending upgrade, structures, resources, and player cooldowns. Backup-only Continue, paused-close autosaving, Sandbox checkpoint isolation, and pad restrictions on moving/replacing structures were also exercised.
+
+The simulation caps active enemies and spawn queues. Higher enemy caps, very large custom maps, and prolonged runs need more profiling. Release builds may not expose Godot's static-memory counter; the overlay reports it as unavailable in that case.
 
 Advanced optional systems such as Ascension, reactive factions, weather, and community map sharing are not implemented. Art uses restrained engine-native primitives; this is an initial game, not an asset-rich commercial release. Research currently ships 24 real nodes rather than speculative entries for the later 100–150-node expansion.

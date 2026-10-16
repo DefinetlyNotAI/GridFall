@@ -4,10 +4,13 @@ var game
 var streams: Dictionary = {}
 var voices: Array = []
 var music: AudioStreamPlayer
+var ui_voice: AudioStreamPlayer
 var cooldown = 0.0
+var variation_rng = RandomNumberGenerator.new()
 
 func setup(owner_game) -> void:
 	game = owner_game
+	variation_rng.randomize()
 	for cue_name in ["shot", "hit", "kill", "build", "wave", "reload", "hurt", "explosion", "step", "ui"]:
 		streams[cue_name] = synth(cue_name)
 	for i in 16:
@@ -16,6 +19,8 @@ func setup(owner_game) -> void:
 		voice.unit_size = 8
 		add_child(voice)
 		voices.append(voice)
+	ui_voice = AudioStreamPlayer.new()
+	add_child(ui_voice)
 	music = AudioStreamPlayer.new()
 	var stream = AudioStreamWAV.new()
 	stream.format = AudioStreamWAV.FORMAT_16_BITS
@@ -73,19 +78,30 @@ func cue(kind: String, pos: Vector3 = Vector3.ZERO, volume: float = 0.7) -> void
 	if DisplayServer.get_name() == "headless": return
 	if not streams.has(kind):
 		return
+	if kind == "ui":
+		ui_voice.stream = streams[kind]
+		ui_voice.volume_db = linear_to_db(maxf(0.0001, volume * float(game.profile.data.settings.volume)))
+		ui_voice.play()
+		return
 	for voice in voices:
 		if not voice.playing:
 			voice.global_position = pos if pos != Vector3.ZERO else (game.player.global_position if is_instance_valid(game.player) else Vector3.ZERO)
 			voice.stream = streams[kind]
 			voice.volume_db = linear_to_db(maxf(0.0001, volume * float(game.profile.data.settings.volume)))
-			voice.pitch_scale = game.rng.randf_range(0.94, 1.06)
+			voice.pitch_scale = variation_rng.randf_range(0.94, 1.06)
 			voice.play()
 			return
 
-func _exit_tree() -> void:
+func stop_all() -> void:
+	if ui_voice:
+		ui_voice.stop()
+		ui_voice.stream = null
 	if music:
 		music.stop()
 		music.stream = null
 	for voice in voices:
 		voice.stop()
 		voice.stream = null
+
+func _exit_tree() -> void:
+	stop_all()

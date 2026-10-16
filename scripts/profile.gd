@@ -5,7 +5,7 @@ var data: Dictionary = {}
 var error = ""
 
 func defaults() -> Dictionary:
-	return {"version": 1, "tp": 0, "research": {}, "awarded": [], "runs": 0, "kills": 0, "best": 0, "bosses": 0, "settings": {"sensitivity": 0.002, "fov": 82.0, "volume": 0.6, "music": 0.25, "fullscreen": false, "vsync": true, "fps": 120, "quality": 1, "hud_scale": 1.0, "crosshair": true, "shake": true, "keys": {}}, "loadout": "rifle"}
+	return {"version": 1, "tp": 0, "research": {}, "awarded": [], "runs": 0, "kills": 0, "best": 0, "bosses": 0, "high_score": 0, "survival_time": 0, "achievements": {}, "settings": {"sensitivity": 0.002, "fov": 82.0, "volume": 0.6, "music": 0.25, "fullscreen": false, "resolution": 0, "vsync": true, "fps": 120, "quality": 1, "enemy_cap": 100, "hud_scale": 1.0, "crosshair": true, "shake": true, "keys": {}}, "loadout": "rifle"}
 
 func valid(value: Variant) -> bool:
 	if not value is Dictionary or value.get("version") != 1:
@@ -20,9 +20,13 @@ func valid(value: Variant) -> bool:
 		if not key is String or not numeric(value.research[key], 0, 10): return false
 	for id in value.awarded:
 		if not id is String: return false
-	for key in ["runs", "kills", "best", "bosses"]:
+	for key in ["runs", "kills", "best", "bosses", "high_score", "survival_time"]:
 		if value.has(key) and not numeric(value[key], 0, 1e15): return false
 	if value.has("loadout") and not value.loadout is String: return false
+	if value.has("achievements"):
+		if not value.achievements is Dictionary: return false
+		for key in value.achievements:
+			if not key is String or not value.achievements[key] is bool: return false
 	var settings = value.settings
 	if settings.has("keys"):
 		if not settings.keys is Dictionary: return false
@@ -30,7 +34,7 @@ func valid(value: Variant) -> bool:
 			if not key is String or not numeric(settings.keys[key], 1, 2147483647): return false
 	for key in ["fullscreen", "vsync", "crosshair", "shake"]:
 		if settings.has(key) and not settings[key] is bool: return false
-	var ranges = {"sensitivity": [0.0001, 0.02], "fov": [50, 120], "volume": [0, 1], "music": [0, 1], "fps": [30, 360], "quality": [0, 1], "hud_scale": [0.75, 1.5]}
+	var ranges = {"sensitivity": [0.0001, 0.02], "fov": [50, 120], "volume": [0, 1], "music": [0, 1], "fps": [30, 360], "quality": [0, 1], "resolution": [0, 2], "enemy_cap": [25, 250], "hud_scale": [0.75, 1.5]}
 	for key in ranges:
 		if settings.has(key) and not numeric(settings[key], ranges[key][0], ranges[key][1]): return false
 	return true
@@ -69,6 +73,9 @@ func save() -> bool:
 			if copied != OK:
 				error = "Could not preserve profile backup."
 				return false
+		elif DirAccess.copy_absolute(PATH, PATH + ".corrupt-" + str(Time.get_ticks_usec())) != OK:
+			error = "Could not preserve the damaged profile."
+			return false
 	var result = DirAccess.rename_absolute(PATH + ".tmp", PATH)
 	if result != OK:
 		error = "Could not replace profile: " + error_string(result)
@@ -106,6 +113,9 @@ func award(id: String, stats: Dictionary, eligible: bool) -> int:
 	data.kills += stats.kills
 	data.bosses += stats.bosses
 	data.best = maxi(int(data.best), stats.wave)
+	data.high_score = maxf(data.high_score, float(stats.get("score", 0)))
+	data.survival_time += float(stats.get("duration", 0))
+	for achievement in stats.get("achievements", []): data.achievements[achievement] = true
 	if not save():
 		data = before
 		return -1

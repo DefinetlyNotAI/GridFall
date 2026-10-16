@@ -786,84 +786,143 @@
       "name": "Hot Loads",
       "description": "Increase weapon damage by 8%.",
       "effect": "damage",
-      "value": 0.08
+      "value": 0.08,
+      "rarity": "Common",
+      "icon": "H",
+      "requires": []
     },
     {
       "id": "turret_servos",
       "name": "Servo Tuning",
       "description": "Increase tower damage by 10%.",
       "effect": "tower_damage",
-      "value": 0.1
+      "value": 0.1,
+      "rarity": "Common",
+      "icon": "S",
+      "requires": []
     },
     {
       "id": "reinforced_vitals",
       "name": "Reinforced Vitals",
       "description": "Add 30 maximum player health.",
       "effect": "health",
-      "value": 30
+      "value": 30,
+      "rarity": "Uncommon",
+      "icon": "R",
+      "requires": []
     },
     {
       "id": "field_medic",
       "name": "Field Medic",
       "description": "Restore 0.6 player health each second after avoiding damage.",
       "effect": "regen",
-      "value": 0.6
+      "value": 0.6,
+      "rarity": "Rare",
+      "icon": "F",
+      "requires": []
     },
     {
       "id": "salvage_protocol",
       "name": "Salvage Protocol",
       "description": "Reduce structure costs by 6%.",
       "effect": "discount",
-      "value": 0.06
+      "value": 0.06,
+      "rarity": "Common",
+      "icon": "S",
+      "requires": [],
+      "cap": 0.5
     },
     {
       "id": "quick_mag",
       "name": "Quick Magwell",
       "description": "Increase reload speed by 10%.",
       "effect": "reload",
-      "value": 0.1
+      "value": 0.1,
+      "rarity": "Common",
+      "icon": "Q",
+      "requires": [],
+      "cap": 8.2
     },
     {
       "id": "shield_cells",
       "name": "Shield Cells",
       "description": "Add 30 shield capacity.",
       "effect": "shield",
-      "value": 30
+      "value": 30,
+      "rarity": "Rare",
+      "icon": "S",
+      "requires": []
     },
     {
       "id": "scavenger",
       "name": "Scavenger",
       "description": "Increase enemy loot drop chance by 10 percentage points.",
       "effect": "loot",
-      "value": 0.1
+      "value": 0.1,
+      "rarity": "Uncommon",
+      "icon": "S",
+      "requires": [],
+      "cap": 0.82
     },
     {
       "id": "rangefinder",
       "name": "Rangefinder",
       "description": "Increase weapon and tower range by 8%.",
       "effect": "range",
-      "value": 0.08
+      "value": 0.08,
+      "rarity": "Common",
+      "icon": "R",
+      "requires": []
     },
     {
       "id": "weakpoint_optics",
       "name": "Weakpoint Optics",
       "description": "Increase critical hit chance by 5%.",
       "effect": "critical",
-      "value": 0.05
+      "value": 0.05,
+      "rarity": "Uncommon",
+      "icon": "W",
+      "requires": [],
+      "cap": 0.95
     },
     {
       "id": "incendiary_mix",
       "name": "Incendiary Mix",
       "description": "Add a small burn to weapon hits.",
       "effect": "burn",
-      "value": 4
+      "value": 4,
+      "rarity": "Rare",
+      "icon": "I",
+      "requires": []
     },
     {
       "id": "chill_rounds",
       "name": "Cryo Rounds",
       "description": "Slow enemies hit by weapons by 12%.",
       "effect": "slow",
-      "value": 0.12
+      "value": 0.12,
+      "rarity": "Rare",
+      "icon": "C",
+      "requires": [],
+      "cap": 0.9
     }
-  ]
+  ],
+  "structure_upgrades": {
+    "power": {
+      "name": "Precision",
+      "damage": 1.5,
+      "interval": 1.0,
+      "range": 1.12,
+      "health": 1.3,
+      "cost": 0.6
+    },
+    "rapid": {
+      "name": "Gatling",
+      "damage": 1.0,
+      "interval": 0.7,
+      "range": 1.0,
+      "health": 1.3,
+      "cost": 0.6
+    }
+  }
 }

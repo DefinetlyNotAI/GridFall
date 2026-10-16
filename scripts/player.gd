@@ -39,6 +39,7 @@ func refresh_gun() -> void:
 		child.queue_free()
 	if game.weapons.is_empty():
 		return
+	if game.weapons[game.active_weapon].id == "": return
 	var definition = game.weapon_def()
 	gun.position = Vector3(0.3, -0.28, -0.55)
 	var color = Color(definition.color)
@@ -50,8 +51,15 @@ func refresh_gun() -> void:
 		game.visuals.box(gun, Vector3(0, 0.25, -0.4), Vector3(0.03, 0.6, 0.12), color, 1)
 
 func _unhandled_input(event: InputEvent) -> void:
-	if not game.playing() or game.ui.overlay != "" or game.state == "paused":
+	if not game.playing() or game.state == "paused":
 		return
+	if event.is_action_pressed("heal"):
+		game.consume("medkit")
+		return
+	if event.is_action_pressed("grenade"):
+		game.consume("grenade")
+		return
+	if game.ui.overlay != "": return
 	if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
 		var sensitivity = float(game.profile.data.settings.sensitivity)
 		rotate_y(-event.relative.x * sensitivity)
@@ -66,10 +74,6 @@ func _unhandled_input(event: InputEvent) -> void:
 		game.interact()
 	if event.is_action_pressed("ability"):
 		game.ability()
-	if event.is_action_pressed("heal"):
-		game.consume("medkit")
-	if event.is_action_pressed("grenade"):
-		game.consume("grenade")
 	if event is InputEventMouseButton and event.pressed:
 		if event.button_index in [MOUSE_BUTTON_WHEEL_UP, MOUSE_BUTTON_WHEEL_DOWN]:
 			game.switch_weapon(1 - game.active_weapon)
@@ -102,6 +106,12 @@ func _physics_process(delta: float) -> void:
 	elif enabled and Input.is_action_just_pressed("jump"):
 		velocity.y = 8
 	move_and_slide()
+	if position.y < -20:
+		if game.state == "wave": game.damage_player(1000000)
+		else:
+			position = game.world.position(game.world.marker("player"), 0.1)
+			velocity = Vector3.ZERO
+			game.ui.notify("Returned to spawn after falling outside the world.")
 	camera.position.y = lerpf(camera.position.y, 1.0 if crouch else 1.65, 12 * delta)
 	var aiming = enabled and Input.is_action_pressed("aim")
 	camera.fov = lerpf(camera.fov, float(game.profile.data.settings.fov) * (0.75 if aiming else 1.0), 12 * delta)

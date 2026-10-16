@@ -135,10 +135,14 @@ func paint(p: Vector2i, erase: bool = false) -> void:
 					game.world.map.layers.markers.erase(old_key)
 		var tile = {"type": tile_type, "rotation": rotation}
 		if layer == "structure":
-			tile.height = 2.8
-			tile.health = 0 if tile_type in ["permanent", "gate"] else 150
+			var definition = game.world.WALL_DEFS[tile_type]
+			tile.height = definition.height
+			tile.health = definition.health
+			tile.max_health = definition.health
 		game.world.map.layers[layer][key] = tile
 		if layer == "ground" and key not in game.world.map.build:
+			game.world.map.build.append(key)
+		if layer == "markers" and tile_type in ["pad", "tower_pad", "structure_pad"] and key not in game.world.map.build:
 			game.world.map.build.append(key)
 
 func click(p: Vector2i, mouse_button: int, dragging: bool) -> void:
@@ -171,7 +175,7 @@ func click(p: Vector2i, mouse_button: int, dragging: bool) -> void:
 		var queue: Array = [p]
 		var visited: Dictionary = {}
 		var index = 0
-		while index < queue.size() and index < 9216:
+		while index < queue.size():
 			var q: Vector2i = queue[index]
 			index += 1
 			var key = game.world.cell_key(q)
@@ -210,20 +214,28 @@ func inspect(p: Vector2i) -> void:
 		return
 	var dialog = ConfirmationDialog.new()
 	dialog.title = "Tile %s / %s / %s" % [key, layer, value.type]
+	dialog.wrap_controls = false
+	dialog.theme = ui.root.theme
 	var body = ui.column(dialog)
 	var fields: Dictionary = {}
-	for field in ["height", "elevation", "health", "rotation", "unlock"]:
+	var properties: Array = ["rotation"]
+	if layer == "structure": properties = ["height", "elevation", "health", "max_health", "rotation"]
+	elif layer in ["objects", "decoration", "lighting", "height"]: properties = ["elevation", "rotation"]
+	elif layer == "markers" and value.type == "enemy": properties = ["rotation", "unlock"]
+	for field in properties:
 		ui.label(body, field.capitalize(), 16)
 		var spin = SpinBox.new()
 		spin.min_value = 0
-		spin.max_value = 100000 if field in ["health", "unlock"] else 360
-		spin.step = 1 if field in ["health", "unlock", "rotation"] else 0.1
-		spin.value = value.get(field, 0)
+		spin.max_value = 100000 if field in ["health", "max_health", "unlock"] else 360
+		spin.step = 1 if field in ["health", "max_health", "unlock", "rotation"] else 0.1
+		spin.value = value.get(field, 3.5 if layer == "height" and field == "elevation" else (3.0 if layer == "lighting" and field == "elevation" else 0))
+		if field in ["health", "max_health"] and game.world.WALL_DEFS.get(value.type, {}).get("health", 0) == 0: spin.editable = false
 		body.add_child(spin)
 		fields[field] = spin
 	var allowed = CheckBox.new()
 	allowed.text = "Allow player construction on this tile"
 	allowed.button_pressed = key in game.world.map.build
+	allowed.disabled = game.world.fixed_solid(p) and not game.world.can_destroy(p)
 	body.add_child(allowed)
 	dialog.confirmed.connect(func():
 		checkpoint()
@@ -234,11 +246,13 @@ func inspect(p: Vector2i) -> void:
 		dialog.queue_free())
 	dialog.canceled.connect(func(): dialog.queue_free())
 	ui.root.add_child(dialog)
-	dialog.popup_centered(Vector2i(420, 600))
+	dialog.popup_centered(Vector2i(440, 110 + properties.size() * 76))
 
 func metadata_dialog() -> void:
 	var dialog = ConfirmationDialog.new()
 	dialog.title = "World metadata"
+	dialog.wrap_controls = false
+	dialog.theme = ui.root.theme
 	var body = ui.column(dialog)
 	var fields: Dictionary = {}
 	for field in ["name", "description", "author"]:
@@ -260,8 +274,10 @@ func metadata_dialog() -> void:
 func new_map_dialog() -> void:
 	var dialog = ConfirmationDialog.new()
 	dialog.title = "New sandbox world"
-	dialog.dialog_text = "Replace the current canvas? Save your work first."
+	dialog.wrap_controls = false
+	dialog.theme = ui.root.theme
 	var body = ui.column(dialog)
+	ui.label(body, "Replace the current canvas? Save your work first.", 16)
 	var fields: Array = []
 	for title in ["Width", "Height"]:
 		ui.label(body, title)
@@ -304,6 +320,11 @@ func new_map_dialog() -> void:
 
 func validate_map() -> bool:
 	var issues = game.world.validate(game.world.map)
+	grid.invalid_cells.clear()
+	for issue in issues:
+		var key = str(issue).get_slice(" at ", 1)
+		if key == "": key = str(issue).get_slice(" from ", 1)
+		if key.split(",").size() == 2: grid.invalid_cells.append(key)
 	set_status("Map valid. Ready for sandbox play." if issues.is_empty() else "\n".join(issues.slice(0, 12)))
 	return issues.is_empty()
 
@@ -333,13 +354,19 @@ func load_map_dialog() -> void:
 	dialog.add_filter("*.json", "GRIDFALL world")
 	dialog.current_dir = ProjectSettings.globalize_path("user://maps")
 	dialog.file_selected.connect(func(selected_path):
-		var file_size = FileAccess.get_file_as_bytes(selected_path).size()
-		if file_size > 8 * 1024 * 1024:
-			set_status("Map exceeds the 8 MB import limit.")
+		var file = FileAccess.open(selected_path, FileAccess.READ)
+		if file == null:
+			set_status("Cannot read the selected map.")
 			dialog.queue_free()
 			return
-		var value = JSON.parse_string(FileAccess.get_file_as_string(selected_path))
-		var issues = game.world.validate(value)
+		if file.get_length() > 8 * 1024 * 1024:
+			set_status("Map exceeds the 8 MB import limit.")
+			file.close()
+			dialog.queue_free()
+			return
+		var value = JSON.parse_string(file.get_as_text())
+		file.close()
+		var issues = game.world.validate(value, false)
 		if not issues.is_empty():
 			set_status("Import rejected: " + "; ".join(issues.slice(0, 8)))
 		else:
@@ -361,6 +388,7 @@ func playtest() -> void:
 	game.start_run("sandbox", authoring)
 
 func return_from_playtest() -> void:
+	Engine.time_scale = 1.0
 	game.clear_run()
 	authoring = game.saved_editor.duplicate(true)
 	game.saved_editor.clear()

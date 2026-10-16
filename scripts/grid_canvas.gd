@@ -14,6 +14,7 @@ var panning = false
 var cell_size = 20.0
 var offset = Vector2.ZERO
 var visible_layers = {"ground": true, "structure": true, "markers": true, "objects": true, "decoration": true, "lighting": true, "height": true}
+var invalid_cells: Array = []
 
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE if miniature else Control.MOUSE_FILTER_STOP
@@ -42,7 +43,14 @@ func _draw() -> void:
 				color = Color("b4844f") if world.map.layers.structure[key].type == "gate" else Color("697b87")
 			draw_rect(rect, color)
 			if visible_layers.objects and world.map.layers.objects.has(key):
-				draw_rect(rect.grow(-cell_size * 0.2), Color("c1a665"))
+				var tile_type = world.map.layers.objects[key].type
+				draw_rect(rect.grow(-cell_size * 0.2), Color("dc8261") if tile_type in world.HAZARDS else Color("c1a665"))
+			if visible_layers.decoration and world.map.layers.decoration.has(key):
+				draw_circle(rect.get_center(), cell_size * 0.18, Color("7a986c"))
+			if visible_layers.lighting and world.map.layers.lighting.has(key):
+				draw_circle(rect.get_center(), cell_size * 0.12, Color("ffdc92"))
+			if visible_layers.height and world.map.layers.height.has(key):
+				draw_rect(rect.grow(-cell_size * 0.1), Color("a1b5cb"), false, 1.5)
 			if world.construction.has(key):
 				var item = world.construction[key]
 				draw_rect(rect.grow(-cell_size * 0.16), Color(item.color))
@@ -54,6 +62,7 @@ func _draw() -> void:
 				if marker.type == "enemy": c = Color("eb856a")
 				if marker.type == "player": c = Color("e5eaf0")
 				draw_circle(rect.get_center(), cell_size * 0.32, c)
+			if key in invalid_cells: draw_rect(rect, Color("ff705d"), false, 3)
 	if not editor:
 		for enemy in game.enemies.values():
 			var pos = offset + Vector2(enemy.node.position.x, enemy.node.position.z) / 3 * cell_size

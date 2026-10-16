@@ -3,12 +3,15 @@ extends Node3D
 var game
 var geometry: Node3D
 var structures: Dictionary = {}
+var fixed_nodes: Dictionary = {}
 var materials: Dictionary = {}
 var effects: Array = []
 var bolts: Array = []
+var numbers: Array = []
 var core: Node3D
 var sun: DirectionalLight3D
 var atmosphere: WorldEnvironment
+var effects_rng = RandomNumberGenerator.new()
 
 func material(color: Color, emission: float = 0.0, metal: float = 0.0) -> StandardMaterial3D:
 	var key = str(color) + str(emission) + str(metal)
@@ -60,6 +63,7 @@ func collision(parent: CollisionObject3D, size: Vector3, offset: Vector3) -> voi
 
 func setup(owner_game) -> void:
 	game = owner_game
+	effects_rng.randomize()
 	atmosphere = WorldEnvironment.new()
 	atmosphere.environment = Environment.new()
 	atmosphere.environment.background_mode = Environment.BG_COLOR
@@ -90,12 +94,20 @@ func rebuild() -> void:
 	geometry = Node3D.new()
 	add_child(geometry)
 	structures.clear()
+	fixed_nodes.clear()
 	var world = game.world
 	var w = int(world.map.width)
 	var h = int(world.map.height)
 	var floor_body = StaticBody3D.new()
 	geometry.add_child(floor_body)
-	collision(floor_body, Vector3(w * 3, 0.4, h * 3), Vector3(w * 1.5, -0.2, h * 1.5))
+	for y in h:
+		var start = -1
+		for x in range(w + 1):
+			var present = x < w and world.map.layers.ground.has(world.cell_key(Vector2i(x, y)))
+			if present and start < 0: start = x
+			if not present and start >= 0:
+				collision(floor_body, Vector3((x - start) * 3, 0.4, 3), Vector3((start + x) * 1.5, -0.2, (y + 0.5) * 3))
+				start = -1
 	var terrain_colors = {"concrete": Color("303e48"), "grass": Color("344c3d"), "dirt": Color("5b4d40"), "sand": Color("8c7d56"), "road": Color("202d35"), "metal": Color("344a55"), "stone": Color("4f5358"), "water": Color("174b65")}
 	for terrain in terrain_colors:
 		var cells: Array = []
@@ -144,9 +156,10 @@ func rebuild() -> void:
 			cylinder(geometry, pos + Vector3(0, 0.04, 0), 1.25, 0.08, Color("e46e54"), 0.8)
 			for i in [-1, 1]:
 				box(geometry, pos + Vector3(i * 1.2, 1.8, 0), Vector3(0.2, 3.6, 0.3), Color("9c5549"), 0.3)
-	for key in world.map.layers.objects:
-		var tile = world.map.layers.objects[key]
-		var pos = world.position(world.point(key))
+	var interactive = world.interactive_tiles()
+	for key in interactive:
+		var tile = interactive[key]
+		var pos = world.position(world.point(key), float(tile.get("elevation", 0)))
 		if tile.type in world.HAZARDS:
 			var hazard_color = {"fire": Color("ff8245"), "acid": Color("9fcd61"), "spikes": Color("a1b4c0"), "electric": Color("6fbefa"), "slow": Color("89d9ea"), "mine": Color("e89c68")}.get(tile.type, Color.WHITE)
 			cylinder(geometry, pos + Vector3.UP * 0.04, 1.3, 0.08, hazard_color, 0.5)
@@ -155,14 +168,15 @@ func rebuild() -> void:
 			continue
 		var object_body = StaticBody3D.new()
 		object_body.position = pos
+		object_body.rotation_degrees.y = float(tile.get("rotation", 0))
 		object_body.set_meta("station", tile.type)
 		geometry.add_child(object_body)
 		collision(object_body, Vector3(1.4, 1.3, 1.2), Vector3(0, 0.65, 0))
 		box(object_body, Vector3(0, 0.55, 0), Vector3(1.4, 1.1, 1.2), Color("243e4c"))
 		box(object_body, Vector3(0, 1.15, 0), Vector3(1, 0.2, 0.7), Color("f4bd69") if tile.type == "shop" else Color("50d9ce"), 0.8)
 	for key in world.map.layers.decoration:
-		var pos = world.position(world.point(key))
 		var tile = world.map.layers.decoration[key]
+		var pos = world.position(world.point(key), float(tile.get("elevation", 0)))
 		if tile.type == "vegetation":
 			cylinder(geometry, pos + Vector3.UP * 0.6, 0.7, 1.2, Color("4e7660"))
 		elif tile.type in ["pipe", "light"]:
@@ -171,7 +185,7 @@ func rebuild() -> void:
 			box(geometry, pos + Vector3.UP * 0.5, Vector3(1.3, 1, 1.3), Color("52616b"))
 	for key in world.map.layers.lighting:
 		var light = OmniLight3D.new()
-		light.position = world.position(world.point(key), 3)
+		light.position = world.position(world.point(key), float(world.map.layers.lighting[key].get("elevation", 3)))
 		light.light_color = Color("8acdd6")
 		light.omni_range = 10
 		light.light_energy = 1.5
@@ -193,20 +207,16 @@ func rebuild() -> void:
 
 func fixed_tile(key: String) -> void:
 	var tile = game.world.map.layers.structure[key]
+	var definition = game.world.WALL_DEFS[tile.type]
 	var body = StaticBody3D.new()
 	body.position = game.world.position(game.world.point(key))
 	body.set_meta("tile", key)
 	geometry.add_child(body)
-	var height = float(tile.get("height", 2.8))
+	fixed_nodes[key] = body
+	var height = float(tile.get("height", definition.height))
 	body.position.y = float(tile.get("elevation", 0))
 	body.rotation_degrees.y = float(tile.get("rotation", 0))
-	var color = Color("384b59")
-	if tile.type == "gate":
-		color = Color("c28048")
-	elif tile.type == "wood":
-		color = Color("77543c")
-	elif tile.type == "glass":
-		color = Color(0.4, 0.75, 0.83, 0.45)
+	var color = Color(definition.color)
 	if tile.type in ["ramp", "stairs"]:
 		for i in 6:
 			var step_height = (i + 1) / 6.0 * minf(1.4, height)
@@ -230,6 +240,12 @@ func fixed_tile(key: String) -> void:
 		collision(body, Vector3(3, height, 3), Vector3(0, height * 0.5, 0))
 	box(body, Vector3(0, height - 0.16, -1.51), Vector3(2.7, 0.08, 0.03), Color("6796a0"), 0.2)
 
+func remove_fixed(key: String) -> void:
+	if fixed_nodes.has(key) and is_instance_valid(fixed_nodes[key]):
+		geometry.remove_child(fixed_nodes[key])
+		fixed_nodes[key].queue_free()
+	fixed_nodes.erase(key)
+
 func structure(key: String) -> void:
 	if structures.has(key) and is_instance_valid(structures[key]):
 		geometry.remove_child(structures[key])
@@ -241,6 +257,7 @@ func structure(key: String) -> void:
 	var body = StaticBody3D.new()
 	body.set_meta("structure", key)
 	body.position = game.world.position(game.world.point(key))
+	body.rotation_degrees.y = float(data.get("rotation", 0))
 	geometry.add_child(body)
 	structures[key] = body
 	var color = Color(data.color)
@@ -307,8 +324,8 @@ func beam(from: Vector3, to: Vector3, color: Color = Color("ffc980"), width: flo
 		return
 
 func burst(pos: Vector3, color: Color, count: int = 8, radius: float = 0.8) -> void:
-	for i in mini(count, 16):
-		var direction = Vector3(game.rng.randf_range(-1, 1), game.rng.randf_range(-0.3, 1), game.rng.randf_range(-1, 1)).normalized()
+	for i in mini(count, 4 if game.profile.data.settings.quality == 0 else 16):
+		var direction = Vector3(effects_rng.randf_range(-1, 1), effects_rng.randf_range(-0.3, 1), effects_rng.randf_range(-1, 1)).normalized()
 		beam(pos, pos + direction * radius, color, 0.05, 0.15)
 
 func obtain_bolt(pos: Vector3, color: Color) -> MeshInstance3D:
@@ -328,7 +345,36 @@ func obtain_bolt(pos: Vector3, color: Color) -> MeshInstance3D:
 func release_bolt(mesh: MeshInstance3D) -> void:
 	mesh.visible = false
 
+func damage_number(pos: Vector3, amount: float) -> void:
+	if DisplayServer.get_name() == "headless": return
+	var entry: Dictionary = {}
+	for number in numbers:
+		if number.life <= 0:
+			entry = number
+			break
+	if entry.is_empty():
+		if numbers.size() >= 32: return
+		var text = Label3D.new()
+		text.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+		text.font_size = 48
+		text.pixel_size = 0.007
+		text.no_depth_test = false
+		text.modulate = Color("ffdb97")
+		add_child(text)
+		entry = {"node": text, "life": 0.0}
+		numbers.append(entry)
+	entry.life = 0.65
+	entry.node.position = pos
+	entry.node.text = str(int(ceil(amount)))
+	entry.node.visible = true
+
 func _process(delta: float) -> void:
+	if game != null and game.state == "paused": return
+	for number in numbers:
+		if number.life > 0:
+			number.life -= delta
+			number.node.position.y += delta * 0.7
+			number.node.visible = number.life > 0
 	for effect in effects:
 		if effect.life > 0:
 			effect.life -= delta
