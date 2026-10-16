@@ -13,7 +13,8 @@
       "speed": 0,
       "splash": 0,
       "color": "#e8d8a8",
-      "tech": ""
+      "tech": "",
+      "loot_mechanism": "hitscan"
     },
     "smg": {
       "name": "SMG",
@@ -28,7 +29,8 @@
       "speed": 0,
       "splash": 0,
       "color": "#9ecb75",
-      "tech": "ballistics_smg"
+      "tech": "ballistics_smg",
+      "loot_mechanism": "hitscan"
     },
     "rifle": {
       "name": "Assault Rifle",
@@ -43,7 +45,8 @@
       "speed": 0,
       "splash": 0,
       "color": "#f2c14e",
-      "tech": ""
+      "tech": "",
+      "loot_mechanism": "hitscan"
     },
     "shotgun": {
       "name": "Combat Shotgun",
@@ -58,7 +61,8 @@
       "speed": 0,
       "splash": 0,
       "color": "#df9b58",
-      "tech": "ballistics_shotgun"
+      "tech": "ballistics_shotgun",
+      "loot_mechanism": "hitscan"
     },
     "sniper": {
       "name": "Rail Sniper",
@@ -73,7 +77,8 @@
       "speed": 0,
       "splash": 0,
       "color": "#c7d5e0",
-      "tech": "ballistics_sniper"
+      "tech": "ballistics_sniper",
+      "loot_mechanism": "hitscan"
     },
     "lmg": {
       "name": "Light Machine Gun",
@@ -88,7 +93,8 @@
       "speed": 0,
       "splash": 0,
       "color": "#c5ad74",
-      "tech": "logistics_lmg"
+      "tech": "logistics_lmg",
+      "loot_mechanism": "hitscan"
     },
     "rocket": {
       "name": "Rocket Launcher",
@@ -103,7 +109,8 @@
       "speed": 24,
       "splash": 5.5,
       "color": "#f07845",
-      "tech": "engineering_rocket"
+      "tech": "engineering_rocket",
+      "loot_mechanism": "projectile"
     },
     "plasma": {
       "name": "Plasma Caster",
@@ -118,7 +125,8 @@
       "speed": 42,
       "splash": 1.2,
       "color": "#63e5ed",
-      "tech": "energy_plasma"
+      "tech": "energy_plasma",
+      "loot_mechanism": "projectile"
     },
     "blade": {
       "name": "Shock Blade",
@@ -133,7 +141,8 @@
       "speed": 0,
       "splash": 0,
       "color": "#88e0a2",
-      "tech": "biotechnology_blade"
+      "tech": "biotechnology_blade",
+      "loot_mechanism": "melee"
     }
   },
   "structures": {
@@ -3058,5 +3067,17 @@
       "range": 1.1,
       "perk": "tower_evolution"
     }
+  },
+  "loot": {
+    "rarity_weights": [35, 33, 22, 8, 2],
+    "weapon_modifiers": [
+      {"id": "stabilized", "mechanisms": ["hitscan", "projectile"]},
+      {"id": "overclocked", "mechanisms": ["hitscan", "projectile", "melee"]},
+      {"id": "incendiary", "mechanisms": ["hitscan", "projectile", "melee"]},
+      {"id": "frost", "mechanisms": ["hitscan", "projectile", "melee"]},
+      {"id": "vampiric", "mechanisms": ["hitscan", "projectile", "melee"]},
+      {"id": "volatile", "mechanisms": ["hitscan", "projectile", "melee"]},
+      {"id": "ricochet", "mechanisms": ["hitscan"]}
+    ]
   }
 }

@@ -352,10 +352,13 @@ func reset_atmosphere() -> void:
 
 func make_weapon(id: String, rarity: int = 0) -> Dictionary:
 	var definition = catalog.weapons[id]
-	var pool = ["stabilized", "overclocked", "incendiary", "frost", "vampiric", "volatile", "ricochet"]
-	if definition.speed > 0 or id == "blade": pool.erase("ricochet")
+	var pool: Array = []
+	var mechanism = str(definition.loot_mechanism)
+	for modifier in catalog.loot.weapon_modifiers:
+		if mechanism in modifier.mechanisms:
+			pool.append(str(modifier.id))
 	var modifiers: Array = []
-	for i in mini(rarity, 3):
+	for i in mini(mini(rarity, 3), pool.size()):
 		var index = rng.randi_range(0, pool.size() - 1)
 		modifiers.append(pool[index])
 		pool.remove_at(index)
@@ -1088,11 +1091,16 @@ func drop_loot(pos: Vector3, boss: bool = false) -> void:
 		if unlocked(catalog.weapons[id]):
 			available.append(id)
 	var rarity = 0
-	var roll = rng.randf()
-	if roll > 0.98: rarity = 4
-	elif roll > 0.9: rarity = 3
-	elif roll > 0.68: rarity = 2
-	elif roll > 0.35: rarity = 1
+	var weights: Array = catalog.loot.rarity_weights
+	var total_weight = 0
+	for weight in weights: total_weight += int(weight)
+	var roll = rng.randf() * total_weight
+	var threshold = 0
+	for i in range(weights.size()):
+		threshold += int(weights[i])
+		if roll <= threshold:
+			rarity = i
+			break
 	if boss: rarity = maxi(2, rarity)
 	var item: Dictionary
 	if rng.randf() < 0.55 or boss:
