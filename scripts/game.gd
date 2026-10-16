@@ -31,6 +31,7 @@ var health = 100.0
 var max_health = 100.0
 var shield = 0.0
 var core_health = 600.0
+var run_research: Dictionary = {}
 var max_core = 600.0
 var core_shield = 0.0
 var restoration_timer = 0.0
@@ -181,7 +182,8 @@ func playing() -> bool:
 
 func unlocked(definition: Dictionary) -> bool:
 	if challenge("ballistics_only") and definition.has("magazine") and (definition.speed > 0 or definition.magazine == 0): return false
-	return definition.get("tech", "") == "" or profile.rank(definition.tech) > 0 or mode == "sandbox"
+	var research = run_research if playing() else profile.data.research
+	return definition.get("tech", "") == "" or int(research.get(definition.get("tech", ""), 0)) > 0 or mode == "sandbox"
 
 func bonus(key: String) -> float:
 	return clampf(float(bonuses.get(key, 0)), 0, float(Rules.CAPS.get(key, 1e12)))
@@ -238,6 +240,7 @@ func start_run(run_mode: String = "endless", custom: Dictionary = {}, restoring:
 	Engine.time_scale = 1.0
 	reset_atmosphere()
 	world.load_map(value)
+	run_research = profile.data.research.duplicate()
 	if challenge("pads_only"):
 		for point in Rules.CHALLENGE_PADS:
 			if world.placement(point) == "": world.map.layers.markers[world.cell_key(point)] = {"type": "pad"}
@@ -1351,6 +1354,7 @@ func update_enemies(delta: float) -> void:
 		var node: CharacterBody3D = enemy.node
 		var pos = node.position
 		enemy.cooldown -= delta
+		if enemy.type == "support": enemy.heal_timer -= delta
 		enemy.slow_time -= delta
 		if enemy.slow_time <= 0: enemy.slow = 0.0
 		if enemy.burn > 0:
@@ -1397,7 +1401,6 @@ func update_enemies(delta: float) -> void:
 					target_kind = "structure"
 					target_key = key
 		if enemy.type == "support":
-			enemy.heal_timer -= delta
 			if enemy.heal_timer <= 0:
 				enemy.heal_timer = 2
 				for ally in enemies.values():
@@ -1661,6 +1664,7 @@ func save_run() -> bool:
 	record.extended.crouched = player.crouched
 	record.extended.exhausted = player.sprint_exhausted
 	record.extended.challenges = active_challenges
+	record.extended.research = run_research
 	if not valid_run(record):
 		ui.notify("Run checkpoint failed validation. The previous save is preserved.")
 		return false
@@ -1744,6 +1748,7 @@ func load_run() -> void:
 	restoration_timer = float(extended.get("restoration_timer", 0))
 	adaptive_run = bool(extended.get("adaptive", true))
 	run_perks = extended.get("perks", {}).duplicate()
+	run_research = extended.get("research", profile.data.research).duplicate()
 	active_challenges = extended.get("challenges", {"frail": true, "fast": true, "no_repair": true} if mode == "challenge" else {}).duplicate()
 	player.stamina = float(extended.get("stamina", 100))
 	player.velocity = CombatSave.unpack(extended.get("velocity", [0, 0, 0]))
@@ -1779,6 +1784,10 @@ func valid_run(value: Variant) -> bool:
 	if value.id in profile.data.awarded or not Rules.MODES.has(value.mode) or value.mode == "sandbox": return false
 	if not value.get("extended", {}) is Dictionary: return false
 	var extended = value.get("extended", {})
+	if not extended.get("research", {}) is Dictionary: return false
+	for id in extended.get("research", {}):
+		var nodes = catalog.technologies.filter(func(node): return node.id == id)
+		if nodes.is_empty() or not profile.numeric(extended.research[id], 0, nodes[0].max_rank): return false
 	for key in ["core_shield", "restoration_timer", "stamina"]:
 		if extended.has(key) and not profile.numeric(extended[key], 0, 1000000): return false
 	if extended.has("adaptive") and not extended.adaptive is bool: return false
