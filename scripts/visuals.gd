@@ -142,19 +142,28 @@ func setup(owner_game) -> void:
 		mesh.visible = false
 		effects.append({"mesh": mesh, "life": 0.0})
 
+func world_fog_density() -> float:
+	var density = game.world.rule("fog_density")
+	return maxf(0.025, density) if game.event_name == "Heavy fog" else density
+
+func world_sun_energy() -> float:
+	var energy = game.world.rule("sun_energy")
+	return minf(0.25, energy) if game.event_name == "Blackout" else energy
+
 func apply_render_settings() -> void:
 	if not is_instance_valid(post): return
 	var settings = game.profile.data.settings
 	post.visible = int(settings.visual_mode) > 0
 	post.material.set_shader_parameter("display_mode", int(settings.visual_mode))
+	atmosphere.environment.fog_density = world_fog_density()
 	if RenderingServer.get_current_rendering_method() == "forward_plus":
 		atmosphere.environment.ssr_enabled = settings.advanced_lighting
 		atmosphere.environment.ssao_enabled = settings.advanced_lighting
 		atmosphere.environment.volumetric_fog_enabled = settings.advanced_lighting
-		atmosphere.environment.volumetric_fog_density = 0.015
+		atmosphere.environment.volumetric_fog_density = world_fog_density()
 	rain.amount = 64 if settings.quality == 0 else 160
 	rain.emitting = settings.weather and weather != "Clear" and game.state == "wave"
-	if not settings.weather or weather != "Thunderstorm": sun.light_energy = 0.25 if game.event_name == "Blackout" else 1.5
+	if not settings.weather or weather != "Thunderstorm": sun.light_energy = world_sun_energy()
 
 func set_weather(event: String, number: int) -> void:
 	weather = "Acid rain" if event == "Acid rain" else ("Thunderstorm" if number % 19 == 0 else ("Rain" if number % 8 == 3 else "Clear"))
@@ -177,6 +186,7 @@ func rebuild() -> void:
 	var world = game.world
 	var w = int(world.map.width)
 	var h = int(world.map.height)
+	apply_render_settings()
 	var floor_body = StaticBody3D.new()
 	geometry.add_child(floor_body)
 	for y in h:
@@ -268,11 +278,12 @@ func rebuild() -> void:
 		else:
 			box(geometry, pos + Vector3.UP * 0.5, Vector3(1.3, 1, 1.3), Color("52616b"))
 	for key in world.map.layers.lighting:
+		var tile: Dictionary = world.map.layers.lighting[key]
 		var light = OmniLight3D.new()
-		light.position = world.position(world.point(key), float(world.map.layers.lighting[key].get("elevation", 3)))
-		light.light_color = Color("8acdd6")
-		light.omni_range = 10
-		light.light_energy = 1.5
+		light.position = world.position(world.point(key), float(tile.get("elevation", 3)))
+		light.light_color = Color(tile.get("color", "8acdd6"))
+		light.omni_range = float(tile.get("range", 10))
+		light.light_energy = float(tile.get("energy", 1.5))
 		geometry.add_child(light)
 	for key in world.map.layers.height:
 		var tile = world.map.layers.height[key]
@@ -518,7 +529,8 @@ func _process(delta: float) -> void:
 		rain.position = game.player.position + Vector3.UP * 13
 	if weather == "Thunderstorm" and game.state == "wave" and game.profile.data.settings.weather:
 		lightning_timer -= delta
-		sun.light_energy = 4.0 if lightning_timer < 0.15 else 0.8
+		var baseline = world_sun_energy()
+		sun.light_energy = minf(4.0, baseline * (4.0 / 1.5)) if lightning_timer < 0.15 else baseline * (0.8 / 1.5)
 		if lightning_timer <= 0:
 			game.audio.cue("explosion", rain.position, 0.25)
 			lightning_timer = effects_rng.randf_range(5, 9)

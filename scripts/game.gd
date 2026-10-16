@@ -266,7 +266,7 @@ func start_run(run_mode: String = "endless", custom: Dictionary = {}, restoring:
 	if challenge("frail"):
 		max_health *= 0.65
 	health = max_health
-	max_core = 600 + bonus("core_health")
+	max_core = world.rule("objective_health") + bonus("core_health")
 	core_health = max_core
 	core_shield = bonus("core_shield")
 	restoration_timer = 0
@@ -350,8 +350,7 @@ func to_menu() -> void:
 func reset_atmosphere() -> void:
 	event_name = ""
 	visuals.clear_weather()
-	visuals.atmosphere.environment.fog_density = 0.006
-	visuals.sun.light_energy = 1.5
+	visuals.apply_render_settings()
 
 func make_weapon(id: String, rarity: int = 0) -> Dictionary:
 	var definition = catalog.weapons[id]
@@ -494,7 +493,7 @@ func hit_body(body: Object, amount: float, source: String, origin: Vector3 = Vec
 			var definition = world.WALL_DEFS[tile.type]
 			var modifiers: Array = effects.get("mods", weapons[active_weapon].get("mods", [])) if source == "weapon" else []
 			var fire_damage = "incendiary" in modifiers
-			tile.health -= amount * (definition.fire if fire_damage else 1 - definition.resistance)
+			tile.health -= amount * (float(tile.get("fire", definition.fire)) if fire_damage else 1 - float(tile.get("resistance", definition.resistance)))
 			if tile.health <= 0:
 				world.map.layers.structure.erase(key)
 				visuals.remove_fixed(key)
@@ -802,9 +801,10 @@ func start_wave() -> bool:
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	spawn_queue.clear()
 	var budget = minf(12000, 28 + wave * 16 + pow(minf(wave, 5000), 1.15) * 2)
+	budget = minf(12000, budget * world.rule("budget_multiplier"))
 	if mode == "siege": budget = minf(12000, budget * 1.25)
 	faction_name = Rules.faction(stats, wave, adaptive_run)
-	if wave % 10 == 0:
+	if wave % int(world.rule("boss_interval")) == 0:
 		spawn_queue.append("boss")
 		budget -= 120
 	var pool: Array = []
@@ -831,15 +831,13 @@ func start_wave() -> bool:
 			if spawn_queue[i] != "boss" and i % 4 == 0: spawn_queue[i] = "tank"
 	spawn_timer = 0.2
 	event_name = upcoming_event(wave)
-	visuals.atmosphere.environment.fog_density = 0.025 if event_name == "Heavy fog" else 0.006
-	visuals.sun.light_energy = 0.25 if event_name == "Blackout" else 1.5
 	visuals.set_weather("Acid rain" if challenge("acid_rain") else event_name, wave)
 	ui.notify("WAVE %d%s%s" % [wave, " · " + event_name if event_name != "" else "", "\nCheckpoint could not be saved; the current run is still active." if not checkpoint_ok else ""])
 	audio.cue("wave")
 	return true
 
 func upcoming_event(number: int) -> String:
-	if number % 10 == 0: return "Siege Titan"
+	if number % int(world.rule("boss_interval")) == 0: return "Siege Titan"
 	if challenge("acid_rain"): return "Acid rain"
 	if number % 17 == 0: return "Acid rain"
 	if number % 13 == 0: return "Elite invasion"
@@ -856,7 +854,7 @@ func spawn_enemy(id: String, spawn_pos: Vector3 = Vector3.ZERO) -> void:
 	var definition = catalog.enemies[id]
 	var enemy = definition.duplicate(true)
 	var scale_factor = 1 + log(1 + maxf(0, wave - 1) * 0.13) * 0.8
-	enemy.health *= scale_factor
+	enemy.health *= scale_factor * world.rule("enemy_health")
 	enemy.max_health = enemy.health
 	enemy.damage *= 1 + log(1 + maxf(0, wave - 1) * 0.06)
 	enemy.speed *= minf(1.8, 1 + wave * 0.008)
@@ -1327,7 +1325,7 @@ func _physics_process(delta: float) -> void:
 	spawn_timer -= delta
 	if spawn_timer <= 0 and not spawn_queue.is_empty() and enemies.size() < active_cap:
 		spawn_enemy(spawn_queue.pop_front())
-		spawn_timer = maxf(0.12, 1.0 / (1 + wave * 0.08))
+		spawn_timer = maxf(0.12, world.rule("spawn_interval") / (1 + wave * 0.08))
 	update_enemies(delta)
 	if state != "wave": return
 	update_towers(delta)
@@ -1376,7 +1374,7 @@ func update_enemies(delta: float) -> void:
 		enemy.think_timer -= delta
 		if enemy.think_timer > 0 and not (enemy.ai == "attack" and enemy.cooldown <= 0):
 			var cached_speed = enemy.speed * (1 - minf(0.9, enemy.slow))
-			if world.map.layers.ground.get(world.cell_key(world.cell(pos)), {}).get("type") == "water": cached_speed *= 0.5
+			cached_speed /= world.movement_cost(world.cell(pos))
 			node.velocity = enemy.steering * cached_speed
 			node.velocity.y = -2
 			if enemy.steering.length_squared() > 0.001 or not node.is_on_floor(): node.move_and_slide()
@@ -1455,7 +1453,8 @@ func update_enemies(delta: float) -> void:
 				elif target_kind == "structure": damage_structure(target_key, enemy.damage)
 				elif target_kind == "tile":
 					var tile = world.map.layers.structure.get(target_key, {})
-					tile.health -= enemy.damage
+					var resistance = float(tile.get("resistance", world.WALL_DEFS[tile.type].resistance))
+					tile.health -= enemy.damage * (1 - resistance)
 					if tile.health <= 0:
 						world.map.layers.structure.erase(target_key)
 						visuals.remove_fixed(target_key)
@@ -1474,7 +1473,7 @@ func update_enemies(delta: float) -> void:
 						if away.length_squared() < 1.6 and away.length_squared() > 0.001:
 							steering += away.normalized() * (1.2 - away.length()) * 0.7
 			var speed = float(enemy.speed) * (1 - minf(0.9, enemy.slow))
-			if world.map.layers.ground.get(world.cell_key(current), {}).get("type") == "water": speed *= 0.5
+			speed /= world.movement_cost(current)
 			node.velocity = steering.limit_length(1) * speed
 			enemy.steering = steering.limit_length(1)
 			node.velocity.y = -2
@@ -1629,20 +1628,20 @@ func clear_projectiles() -> void:
 	projectiles.clear()
 
 func update_hazards() -> void:
-	if (event_name == "Acid rain" or challenge("acid_rain")) and not world.map.layers.height.has(world.cell_key(world.cell(player.position))): damage_player(2, true)
+	if (event_name == "Acid rain" or challenge("acid_rain")) and not world.map.layers.height.has(world.cell_key(world.cell(player.position))): damage_player(2 * world.rule("hazard_damage"), true)
 	for key in world.map.layers.objects.keys():
 		var tile = world.map.layers.objects[key]
 		if tile.type not in world.HAZARDS: continue
 		var pos = world.position(world.point(key), float(tile.get("elevation", 0)))
 		var affected = false
 		if player.position.distance_to(pos) < 1.8:
-			if tile.type != "slow": damage_player(8 if tile.type != "mine" else 45, true)
+			if tile.type != "slow": damage_player((8 if tile.type != "mine" else 45) * world.rule("hazard_damage"), true)
 			affected = true
 		for uid in enemies.keys():
 			var enemy = enemies[uid]
 			if enemy.node.position.distance_to(pos) < 1.8:
 				if tile.type == "slow": enemy.slow = 0.5; enemy.slow_time = 1
-				else: damage_enemy(uid, 10 if tile.type != "mine" else 95, "tower", pos)
+				else: damage_enemy(uid, (10 if tile.type != "mine" else 95) * world.rule("hazard_damage"), "tower", pos)
 				affected = true
 		if tile.type == "mine" and affected:
 			world.map.layers.objects.erase(key)
@@ -1763,8 +1762,6 @@ func load_run() -> void:
 	if r.get("phase", "preparation") == "wave":
 		CombatSave.restore(self, r.combat)
 		event_name = upcoming_event(wave)
-		visuals.atmosphere.environment.fog_density = 0.025 if event_name == "Heavy fog" else 0.006
-		visuals.sun.light_energy = 0.25 if event_name == "Blackout" else 1.5
 		visuals.set_weather("Acid rain" if challenge("acid_rain") else event_name, wave)
 		previous_state = "wave"
 		state = "paused"
@@ -1825,6 +1822,7 @@ func valid_run(value: Variant) -> bool:
 	if not world.validate(value.world).is_empty(): return false
 	var saved_world = World.new()
 	saved_world.load_map(value.world)
+	saved_world.applied = value.applied
 	for number in value.position:
 		if not profile.numeric(number, -10, 1000): return false
 	for key in ["medkit", "grenade"]:
@@ -1973,7 +1971,13 @@ func capture_screen(target: String) -> void:
 		"ascension": ui.show_ascension()
 		"credits": ui.show_credits()
 		"editor": ui.editor.open()
-		"editor-properties": ui.editor.open(); ui.editor.inspect(Vector2i(7, 6))
+		"editor-properties": ui.editor.layer = "structure"; ui.editor.open(); ui.editor.inspect(Vector2i(7, 6))
+		"editor-rules": ui.editor.open(); ui.editor.world_rules_dialog()
+		"editor-events": ui.editor.open(); ui.editor.evolution_events_dialog()
+		"editor-event-edit":
+			ui.editor.open()
+			ui.editor.evolution_events_dialog()
+			ui.editor.evolution_event_form(0, ui.root.get_children()[-1])
 		"editor-new": ui.editor.open(); ui.editor.new_map_dialog()
 		"editor-metadata": ui.editor.open(); ui.editor.metadata_dialog()
 		"editor-generate": ui.editor.open(); ui.editor.generated_map_dialog()

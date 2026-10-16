@@ -111,8 +111,9 @@ func _physics_process(delta: float) -> void:
 		speed = 3.4
 	speed *= 1 + game.bonus("movement")
 	var tile_key = game.world.cell_key(game.world.cell(position))
-	if game.world.map.layers.ground.get(tile_key, {}).get("type") == "water" or game.world.map.layers.objects.get(tile_key, {}).get("type") == "slow":
-		speed *= 0.5
+	var movement_cost = game.world.movement_cost(game.world.cell(position))
+	if game.world.map.layers.objects.get(tile_key, {}).get("type") == "slow": movement_cost = maxf(2, movement_cost)
+	speed /= movement_cost
 	velocity.x = move_toward(velocity.x, direction.x * speed, 35 * delta)
 	velocity.z = move_toward(velocity.z, direction.z * speed, 35 * delta)
 	if not is_on_floor():

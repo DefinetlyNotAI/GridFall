@@ -1,6 +1,16 @@
 extends RefCounted
 
 const SIZE = 3.0
+const RULES = {
+	"budget_multiplier": {"default": 1.0, "min": 0.25, "max": 4.0},
+	"spawn_interval": {"default": 1.0, "min": 0.1, "max": 5.0},
+	"enemy_health": {"default": 1.0, "min": 0.25, "max": 4.0},
+	"objective_health": {"default": 600.0, "min": 100.0, "max": 10000.0},
+	"hazard_damage": {"default": 1.0, "min": 0.0, "max": 4.0},
+	"sun_energy": {"default": 1.5, "min": 0.0, "max": 4.0},
+	"fog_density": {"default": 0.006, "min": 0.0, "max": 0.05},
+	"boss_interval": {"default": 10.0, "min": 2.0, "max": 100.0}
+}
 const TERRAIN = ["concrete", "grass", "dirt", "sand", "road", "metal", "stone", "water"]
 const WALLS = ["wood", "brick", "concrete_wall", "steel", "reinforced", "glass", "permanent", "gate", "door", "window", "barricade", "platform", "ramp", "stairs", "pillar"]
 const WALL_DEFS = {
@@ -28,6 +38,36 @@ var applied: Array = []
 var flow: Dictionary = {}
 var fields: Dictionary = {}
 var nav_ms = 0.0
+
+func default_rules() -> Dictionary:
+	var result: Dictionary = {}
+	for name in RULES:
+		result[name] = RULES[name].default
+	return result
+
+func rule(name: String) -> float:
+	var definition: Dictionary = RULES.get(name, {})
+	if definition.is_empty():
+		return 0.0
+	var configured: Variant = map.get("rules", {})
+	if configured is Dictionary:
+		var value: Variant = configured.get(name, definition.default)
+		if (value is int or value is float) and is_finite(float(value)):
+			return clampf(float(value), float(definition.min), float(definition.max))
+	return float(definition.default)
+
+func migrate(value: Dictionary) -> Dictionary:
+	var result = value.duplicate(true)
+	if result.get("version", 0) == 1:
+		result.version = 2
+		if not result.has("rules"):
+			result.rules = default_rules()
+		elif result.rules is Dictionary:
+			var merged = default_rules()
+			for name in result.rules:
+				merged[name] = result.rules[name]
+			result.rules = merged
+	return result
 
 func cell_key(p: Vector2i) -> String:
 	return "%d,%d" % [p.x, p.y]
@@ -102,7 +142,7 @@ func preset(index: int = 0, seed_value: int = 104729) -> Dictionary:
 		"A greenbelt split by open roads and low cover."
 	]
 	var ids = ["foundry", "relay", "crossroads"]
-	return {"version": 1, "id": ids[index % ids.size()], "name": names[index % names.size()], "description": descriptions[index % descriptions.size()], "author": "GRIDFALL", "width": width, "height": height, "seed": seed_value, "theme": index, "layers": layers, "build": build, "events": [{"id": "west", "round": 4, "remove": ["2,12"], "build": ["3,11", "3,13"], "message": "West gate opened. A second approach is active."}, {"id": "east", "round": 8, "remove": ["22,12"], "build": ["21,11", "21,13"], "message": "East gate opened. Defend all three approaches."}]}
+	return {"version": 2, "id": ids[index % ids.size()], "name": names[index % names.size()], "description": descriptions[index % descriptions.size()], "author": "GRIDFALL", "width": width, "height": height, "seed": seed_value, "theme": index, "rules": default_rules(), "layers": layers, "build": build, "events": [{"id": "west", "round": 4, "remove": ["2,12"], "build": ["3,11", "3,13"], "message": "West gate opened. A second approach is active."}, {"id": "east", "round": 8, "remove": ["22,12"], "build": ["21,11", "21,13"], "message": "East gate opened. Defend all three approaches."}]}
 
 func generated(seed_value: int, width: int = 33, height: int = 33, style: int = 0) -> Dictionary:
 	var map_width = clampi(width, 8, 96)
@@ -190,7 +230,7 @@ func generated(seed_value: int, width: int = 33, height: int = 33, style: int = 
 			build.append(key)
 	var style_names = ["Balanced", "Foundry", "Overgrown"]
 	return {
-		"version": 1,
+		"version": 2,
 		"id": "custom_generated_%d_%d_%d_%d" % [map_seed, map_width, map_height, map_style],
 		"name": "Generated %s %d" % [style_names[map_style], map_seed],
 		"description": "Procedural %s layout, seed %d." % [style_names[map_style], map_seed],
@@ -199,13 +239,14 @@ func generated(seed_value: int, width: int = 33, height: int = 33, style: int = 
 		"height": map_height,
 		"seed": map_seed,
 		"theme": map_style,
+		"rules": default_rules(),
 		"layers": layers,
 		"build": build,
 		"events": []
 	}
 
 func load_map(value: Dictionary) -> void:
-	map = value.duplicate(true)
+	map = migrate(value)
 	construction.clear()
 	applied.clear()
 	rebuild_flow()
@@ -239,14 +280,25 @@ func fixed_solid(p: Vector2i) -> bool:
 	if map.layers.objects.has(key) and map.layers.objects[key].type not in HAZARDS: return true
 	if map.layers.markers.get(key, {}).get("type") in ["supply", "upgrade", "ammo", "generator", "chest", "shop"]: return true
 	var tile = map.layers.structure.get(key, {})
-	return not tile.is_empty() and tile.get("type") not in ["platform", "ramp", "stairs"]
+	return not tile.is_empty() and tile.get("type") not in ["ramp", "stairs"]
+
+func movement_cost(p: Vector2i) -> float:
+	var tile: Dictionary = map.get("layers", {}).get("ground", {}).get(cell_key(p), {})
+	var default_cost = 2.0 if tile.get("type", "") == "water" else 1.0
+	var value: Variant = tile.get("movement_cost", default_cost)
+	if not (value is int or value is float) or not is_finite(float(value)):
+		return default_cost
+	return clampf(float(value), 1.0, 8.0)
 
 func solid(p: Vector2i) -> bool:
 	return fixed_solid(p) or (construction.has(cell_key(p)) and construction[cell_key(p)].kind not in ["trap"])
 
 func can_destroy(p: Vector2i) -> bool:
 	var tile = map.layers.structure.get(cell_key(p), {})
-	return not tile.is_empty() and WALL_DEFS.get(tile.type, {}).get("health", 0) > 0 and tile.get("health", 0) > 0 and not tile.get("locked", false)
+	if tile.is_empty() or WALL_DEFS.get(tile.get("type", ""), {}).get("health", 0) <= 0 or tile.get("locked", false):
+		return false
+	var resistance = float(tile.get("resistance", WALL_DEFS.get(tile.type, {}).get("resistance", 0.0)))
+	return float(tile.get("health", WALL_DEFS[tile.type].health)) > 0 and resistance < 1.0
 
 func rebuild_flow() -> void:
 	var start = Time.get_ticks_usec()
@@ -262,25 +314,63 @@ func navigation_field(target: Vector2i) -> Dictionary:
 	var target_key = cell_key(target)
 	if fields.has(target_key): return fields[target_key]
 	var result: Dictionary = {}
-	var queue: Array = [target]
-	result[target_key] = 0
-	var head = 0
-	while head < queue.size():
-		var p: Vector2i = queue[head]
-		head += 1
+	var queue: Array = []
+	result[target_key] = 0.0
+	_heap_push(queue, [target_key, 0.0])
+	while not queue.is_empty():
+		var current: Array = _heap_pop(queue)
+		var current_key: String = current[0]
+		var current_cost = float(current[1])
+		if current_cost > float(result.get(current_key, INF)):
+			continue
+		var p = point(current_key)
 		for d in [Vector2i.LEFT, Vector2i.RIGHT, Vector2i.UP, Vector2i.DOWN]:
 			var next: Vector2i = p + d
 			var key = cell_key(next)
-			if not inside(next) or result.has(key):
+			if not inside(next):
 				continue
 			if fixed_solid(next):
 				if not can_destroy(next):
 					continue
-			result[key] = int(result[cell_key(p)]) + 1
-			queue.append(next)
+			var next_cost = current_cost + movement_cost(p)
+			if next_cost >= float(result.get(key, INF)):
+				continue
+			result[key] = next_cost
+			_heap_push(queue, [key, next_cost])
 	if fields.size() >= 32: fields.clear()
 	fields[target_key] = result
 	return result
+
+func _heap_push(heap: Array, entry: Array) -> void:
+	heap.append(entry)
+	var child = heap.size() - 1
+	while child > 0:
+		var parent = floori(float(child - 1) / 2.0)
+		if float(heap[parent][1]) <= float(entry[1]):
+			break
+		heap[child] = heap[parent]
+		child = parent
+	heap[child] = entry
+
+func _heap_pop(heap: Array) -> Array:
+	var first: Array = heap[0]
+	var tail: Array = heap.pop_back()
+	if not heap.is_empty():
+		var parent = 0
+		while true:
+			var left = parent * 2 + 1
+			if left >= heap.size():
+				break
+			var child = left
+			var right = left + 1
+			if right < heap.size() and float(heap[right][1]) < float(heap[left][1]):
+				child = right
+			if float(tail[1]) <= float(heap[child][1]):
+				break
+			heap[parent] = heap[child]
+			parent = child
+		heap[parent] = tail
+	return first
 
 func next_cell(p: Vector2i) -> Vector2i:
 	return next_toward(p, marker("objective"))
@@ -288,14 +378,17 @@ func next_cell(p: Vector2i) -> Vector2i:
 func next_toward(p: Vector2i, target: Vector2i) -> Vector2i:
 	var field = navigation_field(target)
 	var best = p
-	var score = float(field.get(cell_key(p), 1e9))
+	var remaining = float(field.get(cell_key(p), INF))
+	var score = INF
 	for d in [Vector2i.LEFT, Vector2i.RIGHT, Vector2i.UP, Vector2i.DOWN]:
 		var q: Vector2i = p + d
-		var cost = float(field.get(cell_key(q), 1e9))
+		if not inside(q) or not field.has(cell_key(q)):
+			continue
+		var cost = movement_cost(q) + float(field[cell_key(q)])
 		if cost < score:
 			score = cost
 			best = q
-	return best
+	return best if score <= remaining + 0.000001 else p
 
 func placement(p: Vector2i) -> String:
 	var key = cell_key(p)
@@ -306,7 +399,7 @@ func placement(p: Vector2i) -> String:
 	if (map.layers.markers.has(key) and map.layers.markers[key].type not in ["pad", "tower_pad", "structure_pad"]) or map.layers.objects.has(key):
 		return "This tile is reserved for a world object."
 	for event in map.events:
-		if key in event.get("remove", []):
+		if event.id not in applied and key in event.get("remove", []):
 			return "Reserved for a scheduled world change."
 	if construction.has(key):
 		return "A structure already occupies this tile."
@@ -330,8 +423,9 @@ func evolve(round_number: int) -> Array:
 
 func validate(value: Variant, require_playable: bool = true) -> Array:
 	var issues: Array = []
-	if not value is Dictionary or value.get("version") != 1:
+	if not value is Dictionary or (value.get("version") != 1 and value.get("version") != 2):
 		return ["Unsupported or missing map format version."]
+	value = migrate(value)
 	for key in ["id", "name", "width", "height", "layers", "build", "events", "seed"]:
 		if not value.has(key):
 			return ["Missing map property: " + key]
@@ -346,6 +440,22 @@ func validate(value: Variant, require_playable: bool = true) -> Array:
 	if not is_finite(float(value.seed)) or absf(value.seed) > 2147483647: return ["Seed is out of range."]
 	if not value.layers is Dictionary or not value.build is Array or not value.events is Array:
 		return ["Invalid layers, construction permissions, or events."]
+	if value.has("rules"):
+		if not value.rules is Dictionary:
+			return ["World rules must be an object."]
+		for name in value.rules:
+			var definition: Dictionary = RULES.get(str(name), {})
+			if definition.is_empty():
+				issues.append("Unknown world rule: " + str(name))
+				continue
+			var rule_value: Variant = value.rules[name]
+			if not (rule_value is int or rule_value is float) or not is_finite(float(rule_value)):
+				issues.append("Invalid world rule value: " + str(name))
+				continue
+			if float(rule_value) < float(definition.min) or float(rule_value) > float(definition.max):
+				issues.append("World rule %s must be between %s and %s." % [name, definition.min, definition.max])
+			if name in ["objective_health", "boss_interval"] and float(rule_value) != int(rule_value):
+				issues.append("World rule %s must be a whole number." % name)
 	for layer in ["ground", "structure", "height", "markers", "objects", "decoration", "lighting"]:
 		if not value.layers.get(layer) is Dictionary:
 			return ["Missing layer: " + layer]
@@ -364,14 +474,47 @@ func validate(value: Variant, require_playable: bool = true) -> Array:
 			var tile = value.layers[layer][key]
 			if not tile is Dictionary or not tile.get("type") is String:
 				return ["Invalid tile definition at " + key]
-			for field in ["height", "elevation", "health", "max_health", "rotation", "unlock"]:
+			for field in ["height", "elevation", "health", "max_health", "rotation", "unlock", "movement_cost", "energy", "range", "resistance", "fire"]:
 				if tile.has(field):
-					if not (tile[field] is int or tile[field] is float) or not is_finite(float(tile[field])) or float(tile[field]) < 0 or float(tile[field]) > 100000:
+					var field_min = 0.0
+					var field_max = 100000.0
+					match field:
+						"height", "elevation": field_max = 100.0
+						"rotation": field_max = 360.0
+						"unlock": field_max = 1000000.0
+						"movement_cost":
+							field_min = 1.0
+							field_max = 8.0
+						"energy": field_max = 8.0
+						"range": field_max = 80.0
+						"resistance": field_max = 1.0
+						"fire": field_max = 4.0
+					if not (tile[field] is int or tile[field] is float) or not is_finite(float(tile[field])) or float(tile[field]) < field_min or float(tile[field]) > field_max:
 						return ["Invalid " + field + " at " + key]
+					if field in ["height", "range"] and float(tile[field]) <= 0:
+						return ["Invalid " + field + " at " + key]
+					if field in ["health", "max_health", "rotation", "unlock"] and float(tile[field]) != int(tile[field]):
+						return ["Invalid " + field + " at " + key]
+					if field == "movement_cost" and layer != "ground":
+						return ["Movement cost is only valid on ground tiles: " + key]
+					if field in ["health", "max_health", "resistance", "fire"] and layer != "structure":
+						return [field.capitalize() + " is only valid on structures: " + key]
+					if field in ["energy", "range"] and layer != "lighting":
+						return [field.capitalize() + " is only valid on lights: " + key]
+					if field == "height" and layer != "structure":
+						return ["Height is only valid on structures: " + key]
+			if tile.has("locked") and not tile.locked is bool:
+				return ["Invalid locked flag at " + key]
+			if tile.has("locked") and layer != "structure":
+				return ["Locked is only valid on structures: " + key]
+			if tile.has("color") and (layer != "lighting" or not tile.color is String or not Color.html_is_valid(tile.color)):
+				return ["Invalid light color at " + key]
 			if layer == "ground" and tile.type not in TERRAIN:
 				issues.append("Unknown terrain at " + key)
 			if layer == "structure" and tile.type not in WALLS:
 				issues.append("Unknown structure at " + key)
+			elif layer == "structure" and WALL_DEFS[tile.type].health > 0 and not tile.get("locked", false) and float(tile.get("health", WALL_DEFS[tile.type].health)) <= 0:
+				issues.append("Destructible structures need positive health or must be locked: " + key)
 			if layer == "markers" and tile.type not in MARKERS:
 				issues.append("Unknown marker at " + key)
 			if layer == "objects" and tile.type not in HAZARDS + ["supply", "shop", "chest", "ammo", "generator", "upgrade"]: issues.append("Unknown object at " + key)
@@ -382,8 +525,6 @@ func validate(value: Variant, require_playable: bool = true) -> Array:
 				counts[tile.type] += 1
 				if tile.type == "enemy" and int(tile.get("unlock", 0)) == 0: initial_spawns += 1
 				if tile.type != "enemy" and tile.has("unlock"): issues.append("Only enemy spawn markers may have an unlock wave: " + key)
-			if float(tile.get("height", 1)) < 0 or float(tile.get("elevation", 0)) < 0:
-				issues.append("Invalid elevation at " + key)
 	if require_playable:
 		for kind in counts:
 			if counts[kind] == 0 or (kind != "enemy" and counts[kind] != 1):
@@ -414,10 +555,10 @@ func validate(value: Variant, require_playable: bool = true) -> Array:
 	for event in value.events:
 		if not event is Dictionary or not event.get("id") is String or not event.get("round") is float and not event.get("round") is int:
 			return ["Malformed world evolution event."]
-		if event.id in ids or event.round < 1 or not event.get("remove", []) is Array or not event.get("build", []) is Array:
+		if event.id.strip_edges().is_empty() or event.id in ids or event.round < 1 or not event.get("remove", []) is Array or not event.get("build", []) is Array:
 			return ["Invalid world evolution event."]
 		if not is_finite(float(event.round)) or event.round > 1000000 or event.round != int(event.round): return ["Evolution round must be a positive whole number up to 1000000."]
-		if not event.get("message") is String:
+		if not event.get("message") is String or event.message.strip_edges().is_empty():
 			return ["World evolution event needs a message."]
 		for key in event.get("remove", []) + event.get("build", []):
 			if not key is String or key.split(",").size() != 2:
@@ -429,11 +570,29 @@ func validate(value: Variant, require_playable: bool = true) -> Array:
 				return ["Evolution cannot overwrite a protected marker."]
 		ids.append(event.id)
 		for key in event.get("remove", []):
-			if key in value.build:
+			if key in value.build and value.layers.structure.has(key):
 				issues.append("Evolution overlaps construction permissions at " + key)
-	probe.evolve(2147483647)
-	for key in value.layers.markers:
-		if not require_playable: break
-		if value.layers.markers[key].type == "enemy" and not probe.flow.has(key):
-			issues.append("Evolution leaves an unreachable enemy spawn at " + key)
+	if require_playable:
+		var stage_rounds: Array[int] = [0]
+		for key in value.layers.markers:
+			var marker_value: Dictionary = value.layers.markers[key]
+			if marker_value.type == "enemy":
+				var unlock_round = int(marker_value.get("unlock", 0))
+				if unlock_round not in stage_rounds:
+					stage_rounds.append(unlock_round)
+		for event in value.events:
+			var event_round = int(event.round)
+			if event_round not in stage_rounds:
+				stage_rounds.append(event_round)
+		stage_rounds.sort()
+		var player_key = cell_key(probe.marker("player"))
+		for stage_round in stage_rounds:
+			if stage_round > 0:
+				probe.evolve(stage_round)
+			if not probe.flow.has(player_key):
+				issues.append("No route to objective from player after wave %d." % stage_round)
+			for key in value.layers.markers:
+				var marker_value: Dictionary = value.layers.markers[key]
+				if marker_value.type == "enemy" and int(marker_value.get("unlock", 0)) <= stage_round and not probe.flow.has(key):
+					issues.append("No route to enemy spawn %s after wave %d." % [key, stage_round])
 	return issues

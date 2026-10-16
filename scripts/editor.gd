@@ -29,6 +29,7 @@ func open() -> void:
 		authoring.name = "Untitled world"
 		authoring.author = "Player"
 	game.world.load_map(authoring)
+	authoring = game.world.map.duplicate(true)
 	show_editor()
 
 func show_editor() -> void:
@@ -84,6 +85,8 @@ func show_editor() -> void:
 		check.toggled.connect(func(value): grid.visible_layers[layer_name] = value)
 		side.add_child(check)
 	ui.button(side, "Map metadata", metadata_dialog)
+	ui.button(side, "World rules", world_rules_dialog)
+	ui.button(side, "Evolution events", evolution_events_dialog)
 	ui.button(side, "Generate map", generated_map_dialog)
 	ui.button(side, "Templates", templates_dialog)
 	ui.button(side, "Share / import code", share_dialog)
@@ -118,12 +121,14 @@ func undo() -> void:
 	if undo_stack.is_empty(): return
 	redo_stack.append(game.world.map.duplicate(true))
 	game.world.map = undo_stack.pop_back()
+	game.world.rebuild_flow()
 	set_status("Undo")
 
 func redo() -> void:
 	if redo_stack.is_empty(): return
 	undo_stack.append(game.world.map.duplicate(true))
 	game.world.map = redo_stack.pop_back()
+	game.world.rebuild_flow()
 	set_status("Redo")
 
 func paint(p: Vector2i, erase: bool = false) -> void:
@@ -219,22 +224,89 @@ func inspect(p: Vector2i) -> void:
 	dialog.title = "Tile %s / %s / %s" % [key, layer, value.type]
 	dialog.wrap_controls = false
 	dialog.theme = ui.root.theme
-	var body = ui.column(dialog)
+	var outer = ui.column(dialog)
+	var scroll = ScrollContainer.new()
+	scroll.custom_minimum_size = Vector2(490, 465)
+	scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	outer.add_child(scroll)
+	var body = ui.column(scroll, 3)
+	body.custom_minimum_size.x = 470
+	body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var fields: Dictionary = {}
 	var properties: Array = ["rotation"]
-	if layer == "structure": properties = ["height", "elevation", "health", "max_health", "rotation"]
-	elif layer in ["objects", "decoration", "lighting", "height"]: properties = ["elevation", "rotation"]
+	if layer == "ground": properties = ["movement_cost", "rotation"]
+	elif layer == "structure": properties = ["height", "elevation", "health", "max_health", "resistance", "fire", "rotation"]
+	elif layer in ["objects", "decoration", "height"]: properties = ["elevation", "rotation"]
+	elif layer == "lighting": properties = ["elevation", "energy", "range", "rotation"]
 	elif layer == "markers" and value.type == "enemy": properties = ["rotation", "unlock"]
 	for field in properties:
 		ui.label(body, field.capitalize(), 16)
 		var spin = SpinBox.new()
 		spin.min_value = 0
-		spin.max_value = 100000 if field in ["health", "max_health", "unlock"] else 360
-		spin.step = 1 if field in ["health", "max_health", "unlock", "rotation"] else 0.1
-		spin.value = value.get(field, 3.5 if layer == "height" and field == "elevation" else (3.0 if layer == "lighting" and field == "elevation" else 0))
-		if field in ["health", "max_health"] and game.world.WALL_DEFS.get(value.type, {}).get("health", 0) == 0: spin.editable = false
+		spin.max_value = 360
+		spin.step = 1
+		var default_value = game.world.WALL_DEFS.get(value.type, {}).get(field, 0)
+		match field:
+			"height":
+				spin.min_value = 0.1
+				spin.max_value = 100
+				spin.step = 0.1
+			"elevation":
+				spin.max_value = 100
+				spin.step = 0.1
+				default_value = 3.5 if layer == "height" else (3.0 if layer == "lighting" else 0.0)
+			"movement_cost":
+				spin.min_value = 1
+				spin.max_value = 8
+				spin.step = 0.1
+				default_value = 2.0 if value.type == "water" else 1.0
+			"energy":
+				spin.min_value = 0
+				spin.max_value = 8
+				spin.step = 0.1
+				default_value = 1.5
+			"range":
+				spin.min_value = 0.1
+				spin.step = 0.1
+				spin.max_value = 80
+				default_value = 10.0
+			"resistance":
+				spin.min_value = 0
+				spin.max_value = 1
+				spin.step = 0.05
+			"fire":
+				spin.min_value = 0
+				spin.max_value = 4
+				spin.step = 0.1
+			"health", "max_health":
+				spin.max_value = 100000
+				if field == "max_health": default_value = float(value.get("health", game.world.WALL_DEFS.get(value.type, {}).get("health", 0)))
+			"unlock":
+				spin.max_value = 1000000
+			"rotation":
+				spin.max_value = 360
+		if field == "height" and layer == "structure":
+			default_value = game.world.WALL_DEFS.get(value.type, {}).get("height", 2.8)
+		spin.rounded = field in ["health", "max_health", "unlock", "rotation"]
+		spin.value = value.get(field, default_value)
+		if field in ["health", "max_health", "resistance", "fire"] and game.world.WALL_DEFS.get(value.type, {}).get("health", 0) == 0: spin.editable = false
 		body.add_child(spin)
 		fields[field] = spin
+	var color_picker: ColorPickerButton
+	if layer == "lighting":
+		ui.label(body, "Light color", 16)
+		color_picker = ColorPickerButton.new()
+		color_picker.color = Color(value.get("color", "8acdd6"))
+		body.add_child(color_picker)
+	var locked: CheckBox
+	if layer == "structure":
+		locked = CheckBox.new()
+		locked.text = "Indestructible"
+		locked.button_pressed = game.world.WALL_DEFS.get(value.type, {}).get("health", 0) == 0 or bool(value.get("locked", false))
+		locked.disabled = game.world.WALL_DEFS.get(value.type, {}).get("health", 0) == 0
+		body.add_child(locked)
 	var allowed = CheckBox.new()
 	allowed.text = "Allow player construction on this tile"
 	allowed.button_pressed = key in game.world.map.build
@@ -243,13 +315,20 @@ func inspect(p: Vector2i) -> void:
 	dialog.confirmed.connect(func():
 		checkpoint()
 		for field in fields:
-			if fields[field].value > 0 or value.has(field): value[field] = fields[field].value
+			value[field] = fields[field].value
+		if color_picker != null:
+			value.color = color_picker.color.to_html(true)
+		if locked != null:
+			value.locked = locked.button_pressed
 		game.world.map.build.erase(key)
 		if allowed.button_pressed: game.world.map.build.append(key)
+		game.world.rebuild_flow()
 		dialog.queue_free())
 	dialog.canceled.connect(func(): dialog.queue_free())
 	ui.root.add_child(dialog)
-	dialog.popup_centered(Vector2i(440, 110 + properties.size() * 76))
+	var content_height = properties.size() * 65 + (50 if color_picker != null else 0) + (40 if locked != null else 0) + 40
+	scroll.custom_minimum_size.y = minf(465, content_height)
+	dialog.popup_centered(Vector2i(560, mini(650, 150 + content_height)))
 
 func metadata_dialog() -> void:
 	var dialog = ConfirmationDialog.new()
@@ -273,6 +352,230 @@ func metadata_dialog() -> void:
 	dialog.canceled.connect(func(): dialog.queue_free())
 	ui.root.add_child(dialog)
 	dialog.popup_centered(Vector2i(550, 340))
+
+func world_rules_dialog() -> void:
+	var dialog = ConfirmationDialog.new()
+	dialog.title = "World rules"
+	dialog.wrap_controls = false
+	dialog.theme = ui.root.theme
+	var body = ui.column(dialog)
+	var scroll = ScrollContainer.new()
+	scroll.custom_minimum_size = Vector2(500, 365)
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	body.add_child(scroll)
+	var rows = ui.column(scroll, 8)
+	rows.custom_minimum_size.x = 480
+	rows.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var fields: Dictionary = {}
+	var labels = {
+		"budget_multiplier": "Enemy budget multiplier",
+		"spawn_interval": "Spawn interval multiplier",
+		"enemy_health": "Enemy health multiplier",
+		"objective_health": "Objective health",
+		"hazard_damage": "Hazard damage multiplier",
+		"boss_interval": "Boss interval (waves)",
+		"sun_energy": "Sun energy",
+		"fog_density": "Fog density"
+	}
+	for name in ["budget_multiplier", "spawn_interval", "enemy_health", "objective_health", "hazard_damage", "boss_interval", "sun_energy", "fog_density"]:
+		var definition: Dictionary = game.world.RULES[name]
+		var row = ui.row(rows, 10)
+		row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		var caption = ui.label(row, labels[name], 16)
+		caption.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		var spin = SpinBox.new()
+		spin.min_value = definition.min
+		spin.max_value = definition.max
+		spin.step = 1 if name in ["objective_health", "boss_interval"] else (0.001 if name == "fog_density" else 0.05)
+		spin.rounded = name in ["objective_health", "boss_interval"]
+		spin.value = game.world.rule(name)
+		spin.custom_minimum_size.x = 125
+		row.add_child(spin)
+		fields[name] = spin
+	var result = ui.label(body, "Changes apply to sandbox playtests and can be undone.", 15, Color("93afbd"))
+	dialog.confirmed.connect(func():
+		var candidate: Dictionary = game.world.map.duplicate(true)
+		var rules = game.world.default_rules()
+		for name in fields:
+			rules[name] = int(fields[name].value) if name in ["objective_health", "boss_interval"] else fields[name].value
+		candidate.rules = rules
+		var issues = game.world.validate(candidate, true)
+		if not issues.is_empty():
+			result.text = "Cannot apply rules: " + "; ".join(issues.slice(0, 8))
+			set_status(result.text)
+			dialog.queue_free()
+			return
+		checkpoint()
+		game.world.load_map(candidate)
+		authoring = game.world.map.duplicate(true)
+		show_editor()
+		set_status("World rules updated.")
+		dialog.queue_free())
+	dialog.canceled.connect(func(): dialog.queue_free())
+	ui.root.add_child(dialog)
+	dialog.popup_centered(Vector2i(590, 510))
+
+func evolution_events_dialog() -> void:
+	var dialog = ConfirmationDialog.new()
+	dialog.title = "World evolution events"
+	dialog.wrap_controls = false
+	dialog.theme = ui.root.theme
+	var body = ui.column(dialog)
+	ui.label(body, "Changes apply after the listed completed wave. Undo restores the previous event list.", 15, Color("93afbd"))
+	var event_list = ItemList.new()
+	event_list.custom_minimum_size = Vector2(480, 180)
+	for event in game.world.map.get("events", []):
+		event_list.add_item("%s  ·  after wave %d" % [event.get("id", ""), int(event.get("round", 1))])
+	body.add_child(event_list)
+	var actions = ui.row(body, 8)
+	ui.button(actions, "Add", func(): evolution_event_form(-1, dialog))
+	var edit = ui.button(actions, "Edit", func():
+		var selected = event_list.get_selected_items()
+		if selected.is_empty():
+			set_status("Select an event to edit.")
+			return
+		evolution_event_form(selected[0], dialog))
+	var remove = ui.button(actions, "Remove", func():
+		var selected = event_list.get_selected_items()
+		if selected.is_empty():
+			set_status("Select an event to remove.")
+			return
+		_remove_evolution_event(selected[0], dialog))
+	edit.disabled = true
+	remove.disabled = true
+	event_list.item_selected.connect(func(_index):
+		edit.disabled = false
+		remove.disabled = false)
+	dialog.get_ok_button().text = "Done"
+	dialog.confirmed.connect(func(): dialog.queue_free())
+	dialog.canceled.connect(func(): dialog.queue_free())
+	ui.root.add_child(dialog)
+	dialog.popup_centered(Vector2i(560, 330))
+
+func _coordinate_list_text(values: Array) -> String:
+	var lines = PackedStringArray()
+	for value in values:
+		lines.append(str(value))
+	return "\n".join(lines)
+
+func _parse_coordinate_list(text: String) -> Dictionary:
+	var coordinates: Array[String] = []
+	for line in text.replace("\r", "").split("\n", false):
+		var token = line.strip_edges()
+		if token.is_empty():
+			continue
+		var parts = token.split(",")
+		if parts.size() != 2 or not parts[0].strip_edges().is_valid_int() or not parts[1].strip_edges().is_valid_int():
+			return {"valid": false, "error": "Coordinates must use x,y, one per line."}
+		coordinates.append("%d,%d" % [int(parts[0].strip_edges()), int(parts[1].strip_edges())])
+	return {"valid": true, "values": coordinates}
+
+func evolution_event_form(event_index: int, owner_dialog: ConfirmationDialog) -> void:
+	owner_dialog.hide()
+	var old_event: Dictionary = game.world.map.events[event_index].duplicate(true) if event_index >= 0 and event_index < game.world.map.events.size() else {}
+	var dialog = ConfirmationDialog.new()
+	dialog.title = "Edit evolution event" if not old_event.is_empty() else "Add evolution event"
+	dialog.wrap_controls = false
+	dialog.theme = ui.root.theme
+	var body = ui.column(dialog)
+	var id_input = LineEdit.new()
+	if old_event.is_empty():
+		id_input.text = "event_%d" % (game.world.map.events.size() + 1)
+	else:
+		id_input.text = str(old_event.get("id", ""))
+	ui.label(body, "Event ID")
+	body.add_child(id_input)
+	var round_input = SpinBox.new()
+	round_input.min_value = 1
+	round_input.max_value = 1000000
+	round_input.step = 1
+	round_input.rounded = true
+	round_input.value = int(old_event.get("round", 1))
+	ui.label(body, "After completed wave")
+	body.add_child(round_input)
+	var remove_input = TextEdit.new()
+	remove_input.custom_minimum_size = Vector2(0, 76)
+	remove_input.text = _coordinate_list_text(old_event.get("remove", []))
+	ui.label(body, "Remove structure at (x,y per line)")
+	body.add_child(remove_input)
+	var build_input = TextEdit.new()
+	build_input.custom_minimum_size = Vector2(0, 76)
+	build_input.text = _coordinate_list_text(old_event.get("build", []))
+	ui.label(body, "Allow construction at (x,y per line)")
+	body.add_child(build_input)
+	var message_input = LineEdit.new()
+	message_input.text = str(old_event.get("message", "World evolution event."))
+	ui.label(body, "Player message")
+	body.add_child(message_input)
+	var result = ui.label(body, "Coordinates are checked against the current map and playable routes.", 14, Color("93afbd"))
+	dialog.get_ok_button().text = "Close"
+	dialog.get_cancel_button().hide()
+	dialog.add_button("Apply event", true, "apply_event")
+	dialog.confirmed.connect(func():
+		dialog.hide()
+		dialog.queue_free()
+		if is_instance_valid(owner_dialog): owner_dialog.popup_centered(Vector2i(560, 330)))
+	dialog.custom_action.connect(func(action):
+		if action != "apply_event": return
+		var remove_result = _parse_coordinate_list(remove_input.text)
+		var build_result = _parse_coordinate_list(build_input.text)
+		if not remove_result.valid or not build_result.valid:
+			result.text = remove_result.get("error", build_result.get("error", "Invalid coordinate list."))
+			return
+		var event_value = {
+			"id": id_input.text.strip_edges(),
+			"round": int(round_input.value),
+			"remove": remove_result.values,
+			"build": build_result.values,
+			"message": message_input.text.strip_edges().left(500)
+		}
+		var candidate: Dictionary = game.world.map.duplicate(true)
+		var events: Array = candidate.events.duplicate(true)
+		if event_index < 0:
+			events.append(event_value)
+		else:
+			events[event_index] = event_value
+		candidate.events = events
+		var issues = game.world.validate(candidate, true)
+		if not issues.is_empty():
+			result.text = "Cannot apply event: " + "; ".join(issues.slice(0, 8))
+			return
+		checkpoint()
+		game.world.load_map(candidate)
+		authoring = game.world.map.duplicate(true)
+		dialog.hide()
+		dialog.queue_free()
+		owner_dialog.hide()
+		owner_dialog.queue_free()
+		show_editor()
+		set_status("Evolution event saved.")
+		evolution_events_dialog())
+	dialog.canceled.connect(func():
+		dialog.hide()
+		dialog.queue_free()
+		if is_instance_valid(owner_dialog): owner_dialog.popup_centered(Vector2i(560, 330)))
+	ui.root.add_child(dialog)
+	dialog.popup_centered(Vector2i(620, 650))
+
+func _remove_evolution_event(event_index: int, owner_dialog: ConfirmationDialog) -> void:
+	if event_index < 0 or event_index >= game.world.map.events.size():
+		return
+	var candidate: Dictionary = game.world.map.duplicate(true)
+	var events: Array = candidate.events.duplicate(true)
+	events.remove_at(event_index)
+	candidate.events = events
+	var issues = game.world.validate(candidate, true)
+	if not issues.is_empty():
+		set_status("Cannot remove event: " + "; ".join(issues.slice(0, 8)))
+		return
+	checkpoint()
+	game.world.load_map(candidate)
+	authoring = game.world.map.duplicate(true)
+	owner_dialog.hide()
+	owner_dialog.queue_free()
+	show_editor()
+	set_status("Evolution event removed.")
+	evolution_events_dialog()
 
 func new_map_dialog() -> void:
 	var dialog = ConfirmationDialog.new()
@@ -461,7 +764,7 @@ func import_code(code: String) -> String:
 		imported.author = "Community"
 	checkpoint()
 	game.world.load_map(imported)
-	authoring = imported.duplicate(true)
+	authoring = game.world.map.duplicate(true)
 	path = ""
 	show_editor()
 	set_status("Imported shared world: %s" % imported.name)
@@ -561,7 +864,7 @@ func load_map_dialog() -> void:
 		else:
 			checkpoint()
 			game.world.load_map(value)
-			authoring = value.duplicate(true)
+			authoring = game.world.map.duplicate(true)
 			path = selected_path
 			show_editor()
 		dialog.queue_free())
