@@ -465,10 +465,14 @@ func validate(value: Variant, require_playable: bool = true) -> Array:
 		if not value.layers[layer] is Dictionary:
 			return ["Layer must be an object: " + layer]
 		for key in value.layers[layer]:
-			var parts = str(key).split(",")
+			if not key is String:
+				return ["Invalid tile coordinate: " + str(key)]
+			var parts = key.split(",")
 			if parts.size() != 2 or not parts[0].is_valid_int() or not parts[1].is_valid_int():
 				return ["Invalid tile coordinate: " + str(key)]
 			var p = point(key)
+			if key != cell_key(p):
+				return ["Non-canonical tile coordinate: " + key]
 			if p.x < 0 or p.y < 0 or p.x >= value.width or p.y >= value.height:
 				issues.append("Out-of-bounds tile: " + key)
 			var tile = value.layers[layer][key]
@@ -535,9 +539,12 @@ func validate(value: Variant, require_playable: bool = true) -> Array:
 	var probe = get_script().new()
 	probe.load_map(value)
 	for key in value.build:
-		if not key is String or key.split(",").size() != 2 or not probe.inside(probe.point(key)):
+		if not key is String or key.split(",").size() != 2:
 			return ["Invalid construction permission coordinate."]
 		if not key.split(",")[0].is_valid_int() or not key.split(",")[1].is_valid_int(): return ["Invalid construction permission coordinate."]
+		var p = probe.point(key)
+		if key != cell_key(p): return ["Invalid construction permission coordinate."]
+		if not probe.inside(p): return ["Invalid construction permission coordinate."]
 	for key in value.layers.markers:
 		if not require_playable: break
 		var kind = value.layers.markers[key].type
@@ -565,6 +572,7 @@ func validate(value: Variant, require_playable: bool = true) -> Array:
 				return ["Invalid evolution coordinate."]
 			if not key.split(",")[0].is_valid_int() or not key.split(",")[1].is_valid_int(): return ["Invalid evolution coordinate."]
 			var p = probe.point(key)
+			if key != cell_key(p): return ["Invalid evolution coordinate."]
 			if not probe.inside(p): return ["Evolution coordinate outside the map: " + key]
 			if value.layers.markers.has(key) and value.layers.markers[key].type in ["player", "objective"]:
 				return ["Evolution cannot overwrite a protected marker."]
