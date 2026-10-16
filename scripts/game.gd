@@ -1350,6 +1350,12 @@ func update_enemies(delta: float) -> void:
 		if not enemies.has(uid) or state != "wave": continue
 		var enemy = enemies[uid]
 		var node: CharacterBody3D = enemy.node
+		if node.position.y < -10:
+			var portals = world.spawns(completed)
+			node.position = world.position(portals[uid % portals.size()], 0.1)
+			node.velocity = Vector3.ZERO
+			enemy.steering = Vector3.ZERO
+			enemy.think_timer = 0
 		var pos = node.position
 		enemy.cooldown -= delta
 		if enemy.type == "support": enemy.heal_timer -= delta

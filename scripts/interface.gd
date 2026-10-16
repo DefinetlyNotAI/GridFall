@@ -914,7 +914,7 @@ func _process(delta: float) -> void:
 		for enemy in game.enemies.values():
 			if enemy.type == "boss":
 				boss_label.visible = true
-				boss_label.text = "SIEGE TITAN · %d / %d · PHASE %d" % [enemy.health, enemy.max_health, 2 if enemy.health < enemy.max_health * 0.5 else 1]
+				boss_label.text = "SIEGE TITAN · %d / %d · PHASE %d" % [enemy.health, enemy.max_health, 3 if enemy.health < enemy.max_health * 0.25 else (2 if enemy.health < enemy.max_health * 0.5 else 1)]
 				hud.boss_ratio = enemy.health / enemy.max_health
 				break
 		var phase = "PREPARATION" if game.state == "preparation" else game.state.to_upper()
