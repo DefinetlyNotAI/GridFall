@@ -1,6 +1,7 @@
 extends RefCounted
 
 const MODES = {
+	"frontier": {"name": "Expanding Frontier", "description": "New districts open every 4 cleared waves, adding caches, grapple anchors and approaches. Territory grows to 96 × 96 tiles; waves remain endless.", "difficulty": 1.2},
 	"endless": {"name": "Endless Defense", "description": "Standard endless defense.", "difficulty": 1.0},
 	"seeded": {"name": "Seeded Survival", "description": "Reproducible world and wave seed.", "difficulty": 1.0},
 	"challenge": {"name": "Challenge Defense", "description": "Configure rule modifiers before deployment. TP multiplier reflects their combined difficulty.", "difficulty": 1.35},

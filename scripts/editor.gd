@@ -681,7 +681,7 @@ func templates_dialog() -> void:
 	var body = ui.column(dialog)
 	ui.label(body, "Choose a starter world. The current map can be restored with Undo.", 16)
 	var picker = OptionButton.new()
-	for template_name in ["The Foundry", "Relay Station", "Crossroads"]:
+	for template_name in game.World.LEVEL_NAMES:
 		picker.add_item(template_name)
 	body.add_child(picker)
 	var descriptions = [

@@ -148,6 +148,8 @@ func _ready() -> void:
 func configure_input() -> void:
 	var keys = {"forward": KEY_W, "back": KEY_S, "left": KEY_A, "right": KEY_D, "jump": KEY_SPACE, "sprint": KEY_SHIFT, "crouch": KEY_CTRL, "reload": KEY_R, "interact": KEY_E, "ability": KEY_Q, "inventory": KEY_TAB, "planning": KEY_B, "pause": KEY_ESCAPE, "next_wave": KEY_ENTER, "weapon1": KEY_1, "weapon2": KEY_2, "heal": KEY_C, "grenade": KEY_G, "debug": KEY_F3}
 	keys.restoration = KEY_X
+	keys.grapple = KEY_F
+	keys.punch = KEY_V
 	for action in keys:
 		if not InputMap.has_action(action):
 			InputMap.add_action(action)
@@ -240,7 +242,7 @@ func start_run(run_mode: String = "endless", custom: Dictionary = {}, restoring:
 	active_challenges = challenge_rules.duplicate() if mode == "challenge" else {}
 	eligible = run_mode != "sandbox" and custom.is_empty()
 	if mode == "daily": seed_value = Rules.daily_seed()
-	var world_index = absi(seed_value) % 2 if mode in ["seeded", "daily"] else selected_map
+	var world_index = absi(seed_value) % World.LEVEL_NAMES.size() if mode in ["seeded", "daily"] else selected_map
 	var value = custom if not custom.is_empty() else world.preset(world_index, seed_value)
 	var issues = world.validate(value)
 	if not issues.is_empty():
@@ -445,6 +447,7 @@ func fire(direction: Vector3 = Vector3.ZERO) -> void:
 	if definition.magazine > 0:
 		item.ammo -= 1
 	fire_timer = resolved.interval
+	player.shot_feedback()
 	var from: Vector3 = player.camera.global_position
 	var aim = -player.camera.global_basis.z if direction == Vector3.ZERO else direction.normalized()
 	var spread = deg_to_rad(float(resolved.spread)) * (0.3 if Input.is_action_pressed("aim") or autoplay else 1.0)
@@ -489,6 +492,60 @@ func fire(direction: Vector3 = Vector3.ZERO) -> void:
 	if profile.data.settings.shake:
 		player.recoil = minf(0.05, player.recoil + (0.008 if equipped.has("grip") else 0.012))
 	audio.cue("shot", from, 0.5)
+
+func punch() -> void:
+	if state not in ["preparation", "wave"] or ui.overlay != "" or player.punch_timer > 0: return
+	player.punch_timer = 0.55
+	player.parry_timer = 0.16
+	player.shot_feedback()
+	audio.cue("wall_jump", player.position, 0.45)
+	if state != "wave": return
+	parry_projectiles()
+	var from = player.camera.global_position
+	var forward = -player.camera.global_basis.z
+	var nearest = -1
+	var distance = 3.4
+	for uid in enemies:
+		var target = enemies[uid].node.position + Vector3.UP
+		var offset = target - from
+		if offset.length() < distance and offset.normalized().dot(forward) > 0.45 and sight(from, target):
+			distance = offset.length()
+			nearest = uid
+	if nearest >= 0:
+		var target = enemies[nearest]
+		target.slow = maxf(target.slow, 0.65)
+		target.slow_time = maxf(target.slow_time, 0.25)
+		visuals.beam(from, target.node.position + Vector3.UP, Color("ffd28a"))
+		damage_enemy(nearest, 24 * (1 + bonus("damage")), "ability", player.position)
+		ui.hit_flash = 0.12
+
+func parry_reward(position: Vector3) -> void:
+	player.parry_timer = 0
+	health = minf(max_health, health + 5)
+	player.dash_energy = minf(3, player.dash_energy + 0.35)
+	player.impact_flash = 0.5
+	stats.parries = int(stats.get("parries", 0)) + 1
+	visuals.burst(position, Color("6bd8c6"), 8, 0.6)
+	audio.cue("build", position, 0.4)
+	ui.notify("PARRY · +5 health · dash energy restored")
+
+func parry_projectiles() -> void:
+	if player.parry_timer <= 0: return
+	var from = player.camera.global_position
+	var forward = -player.camera.global_basis.z
+	for projectile in projectiles:
+		if projectile.source != "enemy": continue
+		var offset = projectile.pos - from
+		if offset.length_squared() > 16 or offset.normalized().dot(forward) < 0.2 or not sight(from, projectile.pos): continue
+		projectile.source = "weapon"
+		projectile.velocity = forward * maxf(35, projectile.velocity.length() * 1.5)
+		projectile.damage *= 2
+		projectile.life = maxf(1.5, projectile.life)
+		projectile.effects = {"mods": [], "elemental": false, "origin": from}
+		projectile.color = Color("6bd8c6")
+		projectile.mesh.material_override = visuals.material(projectile.color, 2)
+		parry_reward(projectile.pos)
+		return
 
 func hit_body(body: Object, amount: float, source: String, origin: Vector3 = Vector3.ZERO, effects: Dictionary = {}) -> void:
 	if not is_instance_valid(body):
@@ -605,6 +662,8 @@ func damage_enemy(uid: int, amount: float, source: String, origin: Vector3 = Vec
 	if enemy.health > 0:
 		return
 	stats.kills += 1
+	if source in ["weapon", "ability"] and player.position.distance_squared_to(enemy.node.position) <= 25 and sight(player.camera.global_position, enemy.node.position + Vector3.UP):
+		health = minf(max_health, health + 3)
 	if enemy.type == "boss":
 		stats.bosses += 1
 	kill_streak += 1
@@ -983,6 +1042,9 @@ func finish_wave() -> void:
 			stats.earned += generated
 	health = minf(max_health, health + 10)
 	var messages = world.evolve(completed)
+	if mode == "frontier" and completed % 4 == 0:
+		var expansion = World.Levels.expand(world, completed)
+		if not expansion.is_empty(): messages.append(expansion)
 	if not messages.is_empty():
 		visuals.rebuild()
 	ui.notify("Wave %d cleared · +%d scrap%s" % [wave, reward, "\n" + "\n".join(messages) if not messages.is_empty() else ""])
@@ -1384,6 +1446,7 @@ func _physics_process(delta: float) -> void:
 	elif spawn_timer <= 0 and spawn_queue.is_empty() and not spawn_reserve.is_empty() and enemies.size() < active_cap:
 		refill_spawns()
 	var phase_start = Time.get_ticks_usec()
+	if player.parry_timer > 0: parry_projectiles()
 	update_enemies(delta)
 	simulation_phases.enemies = (Time.get_ticks_usec() - phase_start) / 1000.0
 	if state != "wave": return
@@ -1403,7 +1466,8 @@ func _physics_process(delta: float) -> void:
 	peak_simulation_ms = maxf(peak_simulation_ms, simulation_ms)
 
 func move_enemy(node: CharacterBody3D, delta: float) -> void:
-	if not world.flat_floor or not node.is_on_floor() or absf(node.position.y) > 0.01:
+	var needs_floor_sweep = not world.flat_floor and (not world.complete_floor or world.sloped_cells.has(world.cell_key(world.cell(node.position))))
+	if needs_floor_sweep or not node.is_on_floor() or absf(node.position.y) > 0.01:
 		node.move_and_slide()
 		return
 	var motion = Vector3(node.velocity.x, 0, node.velocity.z) * delta
@@ -1497,7 +1561,9 @@ func update_enemies(delta: float) -> void:
 		if reach > 4 and target_distance <= reach:
 			var hit = ray(pos + Vector3.UP * 1.2, target + Vector3.UP * 1.2, 5, [node.get_rid()])
 			can_see = hit.is_empty() or (target_kind == "core" and hit.collider.has_meta("core")) or hit.collider == player
-		if target_distance > reach or not can_see:
+		# Visible nearby players can be pursued directly on continuous ground.
+		# This avoids rebuilding a whole-world field for every player tile crossed.
+		if (target_distance > reach or not can_see) and not (target_kind == "player" and world.complete_floor):
 			var cell = world.cell(pos)
 			var next = world.next_toward(cell, world.cell(target))
 			destination = world.position(next)
@@ -1533,7 +1599,11 @@ func update_enemies(delta: float) -> void:
 					continue
 				elif enemy.type == "spitter" or (enemy.type == "boss" and enemy.health < enemy.max_health * 0.5):
 					launch(pos + Vector3.UP * 1.6, (target + Vector3.UP - pos - Vector3.UP * 1.6).normalized() * 15, enemy.damage, 1.8, "enemy", Color("a7dd66"))
-				elif target_kind == "player": damage_player(enemy.damage)
+				elif target_kind == "player":
+					if player.parry_timer > 0 and (pos - player.position).normalized().dot(-player.camera.global_basis.z) > 0.2:
+						parry_reward(pos + Vector3.UP)
+						damage_enemy(uid, enemy.damage * 1.5, "ability", player.position)
+					else: damage_player(enemy.damage)
 				elif target_kind == "core": damage_core(enemy.damage)
 				elif target_kind == "structure": damage_structure(target_key, enemy.damage)
 				elif target_kind == "tile":
@@ -1625,7 +1695,7 @@ func update_towers(delta: float) -> void:
 				break
 		tower.cooldown = interval
 		if tower.id == "laser":
-			tower.focus = minf(2.0, tower.focus + 0.2) if tower.last_target == target else 0.0
+			tower.focus = minf(1.0, tower.focus + 0.15) if tower.last_target == target else 0.0
 			amount *= 1 + tower.focus
 		tower.last_target = target
 		if tower.slow > 0:
@@ -1879,13 +1949,15 @@ func valid_run(value: Variant) -> bool:
 	var extended = value.get("extended", {})
 	if not extended.get("movement", {}) is Dictionary: return false
 	var movement = extended.get("movement", {})
-	var limits = {"energy": 3.0, "dash": 0.16, "coyote": 0.1, "jump": 0.12, "slam_jump": 0.18, "walls": 3.0}
+	var limits = {"energy": 3.0, "dash": 0.16, "coyote": 0.1, "jump": 0.12, "slam_jump": 0.18, "walls": 3.0, "hook_cooldown": 0.4, "punch": 0.55, "parry": 0.16}
 	for key in limits:
 		if movement.has(key) and not profile.numeric(movement[key], 0, limits[key]): return false
 	if movement.has("walls") and movement.walls != int(movement.walls): return false
-	for key in ["slide", "slam"]:
+	for key in ["slide", "slam", "hook"]:
 		if movement.has(key) and not movement[key] is bool: return false
 	if movement.has("direction") and not CombatSave.valid_vector(self, movement.direction, 1): return false
+	if movement.has("anchor") and not CombatSave.valid_vector(self, movement.anchor): return false
+	if movement.has("target") and (not profile.numeric(movement.target, -1, 1e12) or movement.target != int(movement.target)): return false
 	if not extended.get("research", {}) is Dictionary: return false
 	for id in extended.get("research", {}):
 		var nodes = catalog.technologies.filter(func(node): return node.id == id)
@@ -1902,7 +1974,7 @@ func valid_run(value: Variant) -> bool:
 	if not extended.get("perks", {}) is Dictionary: return false
 	for key in extended.get("perks", {}):
 		if not profile.ASCENSION_PERKS.has(key) or not profile.numeric(extended.perks[key], 0, profile.ASCENSION_PERKS[key].max_rank): return false
-	for key in ["explosive_damage", "elemental_damage", "close_damage", "core_damage_taken", "loot_collected"]:
+	for key in ["explosive_damage", "elemental_damage", "close_damage", "core_damage_taken", "loot_collected", "parries"]:
 		if value.stats.has(key) and not profile.numeric(value.stats[key], 0, 1e15): return false
 	for key in ["challenge_weight", "cleared", "reward_wave"]:
 		if value.stats.has(key) and not profile.numeric(value.stats[key], 0, 1e12): return false

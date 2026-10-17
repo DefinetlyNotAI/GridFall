@@ -1,6 +1,8 @@
 extends RefCounted
 
 const SIZE = 3.0
+const Levels = preload("res://scripts/levels.gd")
+const LEVEL_NAMES = ["The Foundry", "Relay Station", "Crossroads", "The Crucible", "Floodworks", "Skyline Yard"]
 const RULES = {
 	"budget_multiplier": {"default": 1.0, "min": 0.25, "max": 4.0},
 	"spawn_interval": {"default": 1.0, "min": 0.1, "max": 5.0},
@@ -38,8 +40,14 @@ var applied: Array = []
 var flow: Dictionary = {}
 var fields: Dictionary = {}
 var nav_ms = 0.0
+var nav_revision = 0
 var flat_floor = false
+var complete_floor = false
+var sloped_cells: Dictionary = {}
 var uniform_cost = 1.0
+var nav_keys = PackedStringArray()
+var nav_walkable = PackedByteArray()
+var nav_costs = PackedFloat32Array()
 
 func default_rules() -> Dictionary:
 	var result: Dictionary = {}
@@ -88,6 +96,8 @@ func inside(p: Vector2i) -> bool:
 	return p.x >= 0 and p.y >= 0 and p.x < int(map.width) and p.y < int(map.height)
 
 func preset(index: int = 0, seed_value: int = 104729) -> Dictionary:
+	index = posmod(index, LEVEL_NAMES.size())
+	if index >= 3: return Levels.authored(self, index - 3, seed_value)
 	var width = 25
 	var height = 25
 	var layers = {"ground": {}, "structure": {}, "height": {}, "markers": {}, "objects": {}, "decoration": {}, "lighting": {}}
@@ -304,10 +314,20 @@ func can_destroy(p: Vector2i) -> bool:
 
 func rebuild_flow() -> void:
 	var start = Time.get_ticks_usec()
+	nav_revision += 1
 	flow.clear()
 	fields.clear()
 	if map.is_empty():
 		return
+	var total = int(map.width) * int(map.height)
+	nav_keys.resize(total)
+	nav_walkable.resize(total)
+	nav_costs.resize(total)
+	for index in total:
+		var p = Vector2i(index % int(map.width), index / int(map.width))
+		nav_keys[index] = cell_key(p)
+		nav_walkable[index] = 1 if not fixed_solid(p) or can_destroy(p) else 0
+		nav_costs[index] = movement_cost(p)
 	uniform_cost = -1.0
 	for tile in map.layers.ground.values():
 		var cost = float(tile.get("movement_cost", 2.0 if tile.type == "water" else 1.0))
@@ -315,60 +335,59 @@ func rebuild_flow() -> void:
 		elif uniform_cost != cost:
 			uniform_cost = 0.0
 			break
-	flat_floor = map.layers.ground.size() == int(map.width) * int(map.height)
+	complete_floor = map.layers.ground.size() == int(map.width) * int(map.height)
+	flat_floor = complete_floor
+	sloped_cells.clear()
 	if flat_floor:
-		for tile in map.layers.structure.values():
+		for key in map.layers.structure:
+			var tile = map.layers.structure[key]
 			if tile.type in ["ramp", "stairs"]:
 				flat_floor = false
-				break
+				var p = point(key)
+				for dy in range(-1, 2):
+					for dx in range(-1, 2): sloped_cells[cell_key(p + Vector2i(dx, dy))] = true
 	var target = marker("objective")
 	flow = navigation_field(target)
 	nav_ms = (Time.get_ticks_usec() - start) / 1000.0
 
 func navigation_field(target: Vector2i) -> Dictionary:
+	if not inside(target): return {}
 	var target_key = cell_key(target)
 	if fields.has(target_key): return fields[target_key]
+	var width = int(map.width)
+	var total = nav_keys.size()
+	var start = target.y * width + target.x
+	var distances = PackedFloat64Array()
+	distances.resize(total)
+	distances.fill(INF)
+	distances[start] = 0
 	var result: Dictionary = {}
 	if uniform_cost > 0:
-		var frontier: Array = [target]
+		var frontier: Array[int] = [start]
 		var head = 0
-		result[target_key] = 0.0
 		while head < frontier.size():
-			var p: Vector2i = frontier[head]
+			var current = frontier[head]
 			head += 1
-			for d in [Vector2i.LEFT, Vector2i.RIGHT, Vector2i.UP, Vector2i.DOWN]:
-				var next: Vector2i = p + d
-				var key = cell_key(next)
-				if not inside(next) or result.has(key): continue
-				if fixed_solid(next) and not can_destroy(next): continue
-				result[key] = float(result[cell_key(p)]) + uniform_cost
+			for next in [current - width, current + width, current - 1 if current % width > 0 else -1, current + 1 if current % width < width - 1 else -1]:
+				if next < 0 or next >= total or nav_walkable[next] == 0 or distances[next] != INF: continue
+				distances[next] = distances[current] + uniform_cost
 				frontier.append(next)
-		if fields.size() >= 32: fields.clear()
-		fields[target_key] = result
-		return result
-	var queue: Array = []
-	result[target_key] = 0.0
-	_heap_push(queue, [target_key, 0.0])
-	while not queue.is_empty():
-		var current: Array = _heap_pop(queue)
-		var current_key: String = current[0]
-		var current_cost = float(current[1])
-		if current_cost > float(result.get(current_key, INF)):
-			continue
-		var p = point(current_key)
-		for d in [Vector2i.LEFT, Vector2i.RIGHT, Vector2i.UP, Vector2i.DOWN]:
-			var next: Vector2i = p + d
-			var key = cell_key(next)
-			if not inside(next):
-				continue
-			if fixed_solid(next):
-				if not can_destroy(next):
-					continue
-			var next_cost = current_cost + movement_cost(p)
-			if next_cost >= float(result.get(key, INF)):
-				continue
-			result[key] = next_cost
-			_heap_push(queue, [key, next_cost])
+	else:
+		var queue: Array = []
+		_heap_push(queue, [start, 0.0])
+		while not queue.is_empty():
+			var entry: Array = _heap_pop(queue)
+			var current = int(entry[0])
+			var current_cost = float(entry[1])
+			if current_cost > distances[current]: continue
+			for next in [current - width, current + width, current - 1 if current % width > 0 else -1, current + 1 if current % width < width - 1 else -1]:
+				if next < 0 or next >= total or nav_walkable[next] == 0: continue
+				var next_cost = current_cost + nav_costs[current]
+				if next_cost >= distances[next]: continue
+				distances[next] = next_cost
+				_heap_push(queue, [next, next_cost])
+	for index in total:
+		if distances[index] != INF: result[nav_keys[index]] = distances[index]
 	if fields.size() >= 32: fields.clear()
 	fields[target_key] = result
 	return result

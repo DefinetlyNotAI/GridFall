@@ -1,6 +1,14 @@
 extends Control
 
 signal selected(cell: Vector2i, button: int, dragging: bool)
+
+class TerrainLayer extends Control:
+	var grid
+	func _draw() -> void:
+		grid.draw_terrain(self)
+
+var terrain_layer: TerrainLayer
+var terrain_state: Array = []
 var game
 var editor = false
 var miniature = false
@@ -19,52 +27,32 @@ var invalid_cells: Array = []
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE if miniature else Control.MOUSE_FILTER_STOP
 	clip_contents = true
+	terrain_layer = TerrainLayer.new()
+	terrain_layer.grid = self
+	terrain_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	terrain_layer.show_behind_parent = true
+	add_child(terrain_layer)
 	set_process(true)
 
 func _process(_delta: float) -> void:
+	if game == null or game.world.map.is_empty(): return
+	update_layout()
+	var current = [game.world.nav_revision, size, zoom, pan, visible_layers.duplicate(), editor, miniature, game.playing(), game.challenge("pads_only"), invalid_cells.hash()]
+	if current != terrain_state:
+		terrain_state = current
+		terrain_layer.queue_redraw()
 	queue_redraw()
+
+func update_layout() -> void:
+	var world = game.world
+	cell_size = minf(size.x / float(world.map.width + 2), size.y / float(world.map.height + 2)) * zoom
+	offset = (size - Vector2(world.map.width, world.map.height) * cell_size) * 0.5 + pan
 
 func _draw() -> void:
 	if game == null or game.world.map.is_empty(): return
 	var world = game.world
 	cell_size = minf(size.x / float(world.map.width + 2), size.y / float(world.map.height + 2)) * zoom
 	offset = (size - Vector2(world.map.width, world.map.height) * cell_size) * 0.5 + pan
-	draw_rect(Rect2(Vector2.ZERO, size), Color("0c151d"))
-	var colors = {"concrete": Color("263844"), "grass": Color("315240"), "dirt": Color("5c4b3b"), "sand": Color("837347"), "road": Color("344956"), "metal": Color("374d5c"), "stone": Color("4a5157"), "water": Color("1d576e")}
-	for y in int(world.map.height):
-		for x in int(world.map.width):
-			var p = Vector2i(x, y)
-			var key = world.cell_key(p)
-			var rect = Rect2(offset + Vector2(p) * cell_size, Vector2.ONE * (cell_size - (0.6 if not miniature else 0)))
-			var terrain = world.map.layers.ground.get(key, {}).get("type", "concrete")
-			var color = colors.get(terrain, Color("263844")) if visible_layers.ground else Color("14212b")
-			if not editor and key in world.map.build:
-				var permitted = not game.playing() or not game.challenge("pads_only") or world.map.layers.markers.get(key, {}).get("type", "") in ["pad", "tower_pad", "structure_pad"]
-				if permitted: color = color.lightened(0.11)
-			if visible_layers.structure and world.map.layers.structure.has(key):
-				color = Color("b4844f") if world.map.layers.structure[key].type == "gate" else Color("697b87")
-			draw_rect(rect, color)
-			if visible_layers.objects and world.map.layers.objects.has(key):
-				var tile_type = world.map.layers.objects[key].type
-				draw_rect(rect.grow(-cell_size * 0.2), Color("dc8261") if tile_type in world.HAZARDS else Color("c1a665"))
-			if visible_layers.decoration and world.map.layers.decoration.has(key):
-				draw_circle(rect.get_center(), cell_size * 0.18, Color("7a986c"))
-			if visible_layers.lighting and world.map.layers.lighting.has(key):
-				draw_circle(rect.get_center(), cell_size * 0.12, Color("ffdc92"))
-			if visible_layers.height and world.map.layers.height.has(key):
-				draw_rect(rect.grow(-cell_size * 0.1), Color("a1b5cb"), false, 1.5)
-			if world.construction.has(key):
-				var item = world.construction[key]
-				draw_rect(rect.grow(-cell_size * 0.16), Color(item.color))
-				if cell_size > 16:
-					draw_string(ThemeDB.fallback_font, rect.position + Vector2(cell_size * 0.25, cell_size * 0.75), str(item.id).left(1).to_upper(), HORIZONTAL_ALIGNMENT_LEFT, -1, int(cell_size * 0.6), Color("101c25"))
-			if visible_layers.markers and world.map.layers.markers.has(key):
-				var marker = world.map.layers.markers[key]
-				var c = Color("5ce6d4")
-				if marker.type == "enemy": c = Color("eb856a")
-				if marker.type == "player": c = Color("e5eaf0")
-				draw_circle(rect.get_center(), cell_size * 0.32, c)
-			if key in invalid_cells: draw_rect(rect, Color("ff705d"), false, 3)
 	if not editor:
 		for enemy in game.enemies.values():
 			var pos = offset + Vector2(enemy.node.position.x, enemy.node.position.z) / 3 * cell_size
@@ -83,6 +71,48 @@ func _draw() -> void:
 		var top = Vector2(selection_start.min(selection_end))
 		var dimensions = Vector2((selection_start - selection_end).abs() + Vector2i.ONE)
 		draw_rect(Rect2(offset + top * cell_size, dimensions * cell_size), Color("f1c477"), false, 2)
+
+func draw_terrain(canvas: CanvasItem) -> void:
+	if game == null or game.world.map.is_empty(): return
+	var world = game.world
+	var permissions: Dictionary = {}
+	for key in world.map.build: permissions[key] = true
+	canvas.draw_rect(Rect2(Vector2.ZERO, size), Color("0c151d"))
+	var colors = {"concrete": Color("263844"), "grass": Color("315240"), "dirt": Color("5c4b3b"), "sand": Color("837347"), "road": Color("344956"), "metal": Color("374d5c"), "stone": Color("4a5157"), "water": Color("1d576e")}
+	for y in int(world.map.height):
+		for x in int(world.map.width):
+			var p = Vector2i(x, y)
+			var key = world.cell_key(p)
+			var rect = Rect2(offset + Vector2(p) * cell_size, Vector2.ONE * (cell_size - (0.6 if not miniature else 0)))
+			var terrain = world.map.layers.ground.get(key, {}).get("type", "concrete")
+			var color = colors.get(terrain, Color("263844")) if visible_layers.ground else Color("14212b")
+			if not editor and permissions.has(key):
+				var permitted = not game.playing() or not game.challenge("pads_only") or world.map.layers.markers.get(key, {}).get("type", "") in ["pad", "tower_pad", "structure_pad"]
+				if permitted: color = color.lightened(0.11)
+			if visible_layers.structure and world.map.layers.structure.has(key):
+				color = Color("b4844f") if world.map.layers.structure[key].type == "gate" else Color("697b87")
+			canvas.draw_rect(rect, color)
+			if visible_layers.objects and world.map.layers.objects.has(key):
+				var tile_type = world.map.layers.objects[key].type
+				canvas.draw_rect(rect.grow(-cell_size * 0.2), Color("dc8261") if tile_type in world.HAZARDS else Color("c1a665"))
+			if visible_layers.decoration and world.map.layers.decoration.has(key):
+				canvas.draw_circle(rect.get_center(), cell_size * 0.18, Color("7a986c"))
+			if visible_layers.lighting and world.map.layers.lighting.has(key):
+				canvas.draw_circle(rect.get_center(), cell_size * 0.12, Color("ffdc92"))
+			if visible_layers.height and world.map.layers.height.has(key):
+				canvas.draw_rect(rect.grow(-cell_size * 0.1), Color("a1b5cb"), false, 1.5)
+			if world.construction.has(key):
+				var item = world.construction[key]
+				canvas.draw_rect(rect.grow(-cell_size * 0.16), Color(item.color))
+				if cell_size > 16:
+					canvas.draw_string(ThemeDB.fallback_font, rect.position + Vector2(cell_size * 0.25, cell_size * 0.75), str(item.id).left(1).to_upper(), HORIZONTAL_ALIGNMENT_LEFT, -1, int(cell_size * 0.6), Color("101c25"))
+			if visible_layers.markers and world.map.layers.markers.has(key):
+				var marker = world.map.layers.markers[key]
+				var c = Color("5ce6d4")
+				if marker.type == "enemy": c = Color("eb856a")
+				if marker.type == "player": c = Color("e5eaf0")
+				canvas.draw_circle(rect.get_center(), cell_size * 0.32, c)
+			if key in invalid_cells: canvas.draw_rect(rect, Color("ff705d"), false, 3)
 
 func local_cell(pos: Vector2) -> Vector2i:
 	return Vector2i(((pos - offset) / cell_size).floor())

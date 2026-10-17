@@ -40,17 +40,38 @@ func setup(owner_game) -> void:
 	theme.set_color("font_color", "Label", Color("d5e2e8"))
 	theme.set_color("font_color", "Button", Color("d5e2e8"))
 	theme.set_color("font_hover_color", "Button", Color("ffffff"))
-	for state in ["normal", "hover", "pressed", "focus", "disabled"]:
+	theme.set_color("font_pressed_color", "Button", Color("f5d39a"))
+	theme.set_color("font_disabled_color", "Button", Color("71838a"))
+	var backgrounds = {"normal": Color("172b38"), "hover": Color("213e49"), "pressed": Color("10232d"), "focus": Color("1b3943"), "disabled": Color("111d25")}
+	var borders = {"normal": Color("3b5b68"), "hover": Color("61bfae"), "pressed": Color("b9905d"), "focus": Color("8ce5d2"), "disabled": Color("263943")}
+	for state in backgrounds:
 		var style = StyleBoxFlat.new()
-		style.bg_color = Color("172b38") if state == "normal" else Color("284958")
-		if state == "disabled": style.bg_color = Color("131f28")
-		style.border_color = Color("3b5b68") if state != "focus" else Color("6bd8c6")
-		style.set_border_width_all(1)
+		style.bg_color = backgrounds[state]
+		style.border_color = borders[state]
+		style.set_border_width_all(2 if state == "focus" else 1)
+		style.set_corner_radius_all(2)
 		style.content_margin_left = 16
 		style.content_margin_right = 16
 		style.content_margin_top = 10
 		style.content_margin_bottom = 10
 		theme.set_stylebox(state, "Button", style)
+	var focus_style = StyleBoxFlat.new()
+	focus_style.bg_color = Color(0, 0, 0, 0)
+	focus_style.border_color = Color("8ce5d2")
+	focus_style.set_border_width_all(2)
+	focus_style.set_corner_radius_all(2)
+	for type in ["OptionButton", "CheckButton", "CheckBox", "SpinBox", "LineEdit"]:
+		theme.set_stylebox("focus", type, focus_style.duplicate())
+		theme.set_color("font_disabled_color", type, Color("71838a"))
+	var panel_style = StyleBoxFlat.new()
+	panel_style.bg_color = Color(0.035, 0.065, 0.085, 0.88)
+	panel_style.border_color = Color("304b57")
+	panel_style.set_border_width_all(1)
+	panel_style.content_margin_left = 12
+	panel_style.content_margin_right = 12
+	panel_style.content_margin_top = 10
+	panel_style.content_margin_bottom = 10
+	theme.set_stylebox("panel", "PanelContainer", panel_style)
 	root = Control.new()
 	root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -67,21 +88,23 @@ func setup(owner_game) -> void:
 	hud_left.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_LEFT)
 	hud_left.offset_left = 30
 	hud_left.offset_right = 400
-	hud_left.offset_top = -210
-	hud_left.offset_bottom = -50
+	hud_left.offset_top = -285
+	hud_left.offset_bottom = -60
 	hud_right = floating_label(hud, Vector2.ZERO, 23)
 	hud_right.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_RIGHT)
 	hud_right.offset_left = -400
 	hud_right.offset_right = -30
-	hud_right.offset_top = -150
-	hud_right.offset_bottom = -50
+	hud_right.offset_top = -185
+	hud_right.offset_bottom = -60
 	hud_right.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	hints = floating_label(hud, Vector2.ZERO, 15)
-	hints.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_LEFT)
+	hints.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_WIDE)
 	hints.offset_left = 30
-	hints.offset_right = 1350
-	hints.offset_top = -38
-	hints.offset_bottom = -10
+	hints.offset_right = -30
+	hints.offset_top = -62
+	hints.offset_bottom = -12
+	hints.add_theme_font_size_override("font_size", 14)
+	hints.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	var minimap = Grid.new()
 	minimap.game = game
 	minimap.miniature = true
@@ -115,6 +138,8 @@ func floating_label(parent: Node, pos: Vector2, font_size: int) -> Label:
 	label.position = pos
 	label.add_theme_font_size_override("font_size", font_size)
 	label.add_theme_color_override("font_shadow_color", Color("050d13"))
+	label.add_theme_color_override("font_outline_color", Color("050d13"))
+	label.add_theme_constant_override("outline_size", 3)
 	label.add_theme_constant_override("shadow_offset_x", 2)
 	label.add_theme_constant_override("shadow_offset_y", 2)
 	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -210,17 +235,26 @@ func show_menu() -> void:
 	wipe()
 	var margin = backdrop(0.55)
 	var layout = row(margin, 60)
-	var left = column(layout, 10)
+	var left = column(layout, 8)
 	left.custom_minimum_size.x = 380
 	spacer(left)
 	label(left, "GRIDFALL", 64, Color("e2f3f1"))
 	label(left, "HOLD THE CORE. BUILD THE NEXT CHANCE.", 15, Color("91c8c7"))
 	label(left, "ENDLESS DEFENSE", 19, Color("f2c482"))
-	button(left, "Deploy", show_selection)
+	label(left, "OPERATIONS", 13, Color("6cd7c5"))
+	var deploy = button(left, "Deploy", show_selection)
+	for state in ["normal", "hover", "pressed", "focus"]:
+		var action_style: StyleBoxFlat = root.theme.get_stylebox(state, "Button").duplicate()
+		action_style.bg_color = Color("23463f") if state != "pressed" else Color("17362f")
+		action_style.border_color = Color("6cd7c5")
+		deploy.add_theme_stylebox_override(state, action_style)
+	deploy.add_theme_color_override("font_color", Color("f0d7a7"))
 	if game.resume_available: button(left, "Continue saved run", func(): game.load_run())
+	label(left, "PROGRESSION", 13, Color("6cd7c5"))
 	button(left, "Technology research · %d TP" % game.profile.data.tp, show_research)
 	button(left, "Ascension · %d cores" % game.profile.data.cores, show_ascension)
 	button(left, "Loadout", show_loadout)
+	label(left, "WORLD / RECORDS", 13, Color("6cd7c5"))
 	button(left, "Sandbox map editor", func(): editor.open())
 	button(left, "Statistics", show_statistics)
 	button(left, "Settings", show_settings)
@@ -240,19 +274,21 @@ func show_selection() -> void:
 	var body = page("DEPLOYMENT", "Fixed layouts · construction during Preparation · permanent research applies to standard runs")
 	var content = row(body, 30)
 	content.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	var settings = column(content)
+	var settings_panel = PanelContainer.new()
+	settings_panel.custom_minimum_size.x = 420
+	content.add_child(settings_panel)
+	var settings = column(settings_panel)
 	settings.custom_minimum_size.x = 400
 	label(settings, "WORLD", 17, Color("7ed9cb"))
 	var maps = OptionButton.new()
-	maps.add_item("The Foundry")
-	maps.add_item("Relay Station")
+	for world_name in game.World.LEVEL_NAMES: maps.add_item(world_name)
 	maps.selected = game.selected_map
-	maps.item_selected.connect(func(index): game.selected_map = index; game.world.load_map(game.world.preset(index, game.seed_value)); game.visuals.rebuild())
 	settings.add_child(maps)
 	label(settings, "RULES", 17, Color("7ed9cb"))
 	var mode_picker = OptionButton.new()
 	var mode_ids = game.Rules.MODES.keys()
 	for id in mode_ids: mode_picker.add_item(game.Rules.MODES[id].name)
+	mode_picker.select(mode_ids.find("endless"))
 	settings.add_child(mode_picker)
 	var rule_description = label(settings, game.Rules.MODES.endless.description, 16, Color("a1b7c1"))
 	var configure_rules = button(settings, "Configure Challenge rules", show_challenge_rules)
@@ -263,28 +299,33 @@ func show_selection() -> void:
 	seed_input.max_value = 2147483647
 	seed_input.value = game.seed_value
 	settings.add_child(seed_input)
+	var world_description = label(settings, "", 17, Color("a1b7c1"))
 	var refresh_world = func():
 		var mode_id = mode_ids[mode_picker.selected]
 		configure_rules.visible = mode_id == "challenge"
 		if mode_id == "daily": game.seed_value = game.Rules.daily_seed(); seed_input.value = game.seed_value
 		seed_input.editable = mode_id != "daily"
 		rule_description.text = game.Rules.MODES[mode_id].description
-		var index = absi(game.seed_value) % 2 if mode_id in ["seeded", "daily"] else game.selected_map
+		var index = absi(game.seed_value) % game.World.LEVEL_NAMES.size() if mode_id in ["seeded", "daily"] else game.selected_map
 		maps.disabled = mode_id in ["seeded", "daily"]
 		maps.selected = index
 		game.world.load_map(game.world.preset(index, game.seed_value))
+		world_description.text = "%s\n\n%d × %d tiles. Build on permitted ground away from the protected core and roads." % [game.world.map.description, game.world.map.width, game.world.map.height]
 		game.visuals.rebuild()
+	maps.item_selected.connect(func(index): game.selected_map = index; refresh_world.call())
 	mode_picker.item_selected.connect(func(_index): refresh_world.call())
 	seed_input.value_changed.connect(func(value): game.seed_value = int(value); refresh_world.call())
 	refresh_world.call()
-	label(settings, "West approach opens after wave 4.\nEast approach opens after wave 8.\n\nThe road and core remain protected. Build on the lighter tiles.", 18, Color("a1b7c1"))
 	spacer(settings)
 	button(settings, "Begin run", func(): game.start_run(mode_ids[mode_picker.selected]))
+	var preview_panel = PanelContainer.new()
+	preview_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	content.add_child(preview_panel)
 	var preview = Grid.new()
 	preview.game = game
 	preview.miniature = true
 	preview.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	content.add_child(preview)
+	preview_panel.add_child(preview)
 
 func show_challenge_rules() -> void:
 	var dialog = ConfirmationDialog.new()
@@ -327,7 +368,10 @@ func show_planning() -> void:
 	button(top, "Return to FPS [%s]" % key_name("planning"), close_overlay)
 	button(top, "Start wave [%s]" % key_name("next_wave"), func(): game.start_wave(), game.reward_pending)
 	label(body, "Build on permitted tiles. Dark routes, fixed geometry, markers, and amber gates are protected. Right-click inspects. Wheel zooms; middle drag pans.", 15, Color("94aebc"))
-	planning_preview = label(body, "Choose a structure and a permitted tile.", 16, Color("e8c58c"))
+	var preview_panel = PanelContainer.new()
+	body.add_child(preview_panel)
+	planning_preview = label(preview_panel, "Choose a structure and a permitted tile.", 16, Color("e8c58c"))
+	planning_preview.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var content = row(body, 22)
 	content.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	grid = Grid.new()
@@ -335,9 +379,13 @@ func show_planning() -> void:
 	grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	content.add_child(grid)
 	grid.selected.connect(planning_click)
+	var detail_panel = PanelContainer.new()
+	detail_panel.custom_minimum_size.x = 390
+	content.add_child(detail_panel)
 	var scroll = ScrollContainer.new()
 	scroll.custom_minimum_size.x = 360
-	content.add_child(scroll)
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	detail_panel.add_child(scroll)
 	planning_detail = column(scroll)
 	planning_detail.custom_minimum_size.x = 335
 	refresh_planning()
@@ -871,20 +919,25 @@ func show_settings() -> void:
 	var key_col = column(content)
 	key_col.custom_minimum_size.x = 450
 	label(key_col, "KEYBINDINGS", 19, Color("7bd7c3"))
-	for action in ["forward", "back", "left", "right", "jump", "sprint", "crouch", "reload", "interact", "ability", "restoration", "inventory", "planning", "next_wave", "weapon1", "weapon2", "heal", "grenade", "pause"]:
+	for action in ["forward", "back", "left", "right", "jump", "sprint", "crouch", "grapple", "punch", "reload", "interact", "ability", "restoration", "inventory", "planning", "next_wave", "weapon1", "weapon2", "heal", "grenade", "pause"]:
 		var events = InputMap.action_get_events(action)
 		var key = events[0].as_text_physical_keycode() if not events.is_empty() else "Unbound"
-		var action_name = "Dash" if action == "sprint" else ("Crouch / slide / slam" if action == "crouch" else action.replace("_", " ").capitalize())
+		var action_name = "Dash" if action == "sprint" else ("Crouch / slide / slam" if action == "crouch" else ("Punch / parry" if action == "punch" else action.replace("_", " ").capitalize()))
 		button(key_col, action_name + " : " + key, func(): rebind_action = action; notify("Press a key for " + action_name + ". Escape cancels."))
 	button(key_col, "Reset bindings", func(): settings.keys.clear(); game.configure_input(); show_settings())
 
 func show_credits() -> void:
 	overlay = "credits"
-	var body = page("CREDITS & LICENSES", "Engine-native geometry and synthesized audio. No third-party game artwork or audio assets.", show_settings)
+	var body = page("CREDITS & LICENSES", "Third-party game assets are CC0. Open a source page below.", show_settings)
+	label(body, "GAME ASSETS · CC0", 17, Color("7ed9cb"))
+	var sources = row(body, 10)
+	button(sources, "Kenney · Blaster Kit", func(): OS.shell_open("https://kenney.nl/assets/blaster-kit"))
+	button(sources, "Rob Tuytel · Large Floor Tiles 02", func(): OS.shell_open("https://polyhaven.com/a/large_floor_tiles_02"))
+	button(sources, "Poly Haven license", func(): OS.shell_open("https://polyhaven.com/license"))
 	var content = RichTextLabel.new()
 	content.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	content.selection_enabled = true
-	content.text = "GRIDFALL\n\nGODOT ENGINE\n\n" + Engine.get_license_text() + "\n\nTHIRD-PARTY COMPONENTS\n"
+	content.text = "GRIDFALL\n\nTHIRD-PARTY GAME ASSETS\nKenney · Blaster Kit · CC0\nRob Tuytel · Large Floor Tiles 02 (Poly Haven) · CC0\n\nGODOT ENGINE\n\n" + Engine.get_license_text() + "\n\nTHIRD-PARTY COMPONENTS\n"
 	for component in Engine.get_copyright_info():
 		content.text += "\n" + component.name + "\n"
 		for part in component.parts:
@@ -927,26 +980,32 @@ func _process(delta: float) -> void:
 		if game.profile.data.settings.stamina: hud_left.text += "\nSTAMINA %d" % game.player.stamina
 		if not game.weapons.is_empty():
 			var weapon = game.weapons[game.active_weapon]
-			hud_right.text = "%s\n%d / %d%s\nLV %d · XP %d / %d" % [game.item_name(weapon).to_upper(), weapon.ammo, weapon.reserve, " · RELOADING" if game.reload_timer > 0 else "", game.level, game.xp, game.next_xp]
-		hints.text = "%s plan   %s wave   %s inventory   %s collect / supply   %s reload   %s heal   %s grenade   %s pause" % [key_name("planning"), key_name("next_wave"), key_name("inventory"), key_name("interact"), key_name("reload"), key_name("heal"), key_name("grenade"), key_name("pause")]
+			var reload_status = " · RELOADING %.1fs" % game.reload_timer if game.reload_timer > 0 else ""
+			hud_right.text = "%s\n%d / %d%s\nLV %d · XP %d / %d" % [game.item_name(weapon).to_upper(), weapon.ammo, weapon.reserve, reload_status, game.level, game.xp, game.next_xp]
+		var action_hints = "[%s] PLAN  ·  [%s] START WAVE  ·  [%s] INVENTORY  ·  [%s] COLLECT / SUPPLY  ·  [%s] RELOAD  ·  [%s] HEAL  ·  [%s] GRENADE  ·  [%s] PAUSE" % [key_name("planning"), key_name("next_wave"), key_name("inventory"), key_name("interact"), key_name("reload"), key_name("heal"), key_name("grenade"), key_name("pause")]
 		if game.state == "wave":
-			hints.text = "LMB fire   RMB aim   %s / %s weapons   %s reload   %s pulse   %s collect   %s heal   %s grenade   %s pause" % [key_name("weapon1"), key_name("weapon2"), key_name("reload"), key_name("ability"), key_name("interact"), key_name("heal"), key_name("grenade"), key_name("pause")]
+			action_hints = "LMB FIRE  ·  RMB AIM  ·  [%s] / [%s] WEAPONS  ·  [%s] RELOAD  ·  [%s] PULSE  ·  [%s] COLLECT  ·  [%s] HEAL  ·  [%s] GRENADE  ·  [%s] PAUSE" % [key_name("weapon1"), key_name("weapon2"), key_name("reload"), key_name("ability"), key_name("interact"), key_name("heal"), key_name("grenade"), key_name("pause")]
+		var movement_hints = "[%s] DASH  ·  [%s] SLIDE / SLAM  ·  [%s] WALL JUMP  ·  [%s] GRAPPLE  ·  [%s] PUNCH / PARRY" % [key_name("sprint"), key_name("crouch"), key_name("jump"), key_name("grapple"), key_name("punch")]
 		if not game.drops.is_empty() and is_instance_valid(game.player):
 			for drop in game.drops:
 				if drop.pos.distance_to(game.player.position) < 3.5:
-					hints.text = "[%s] Pick up " % key_name("interact") + game.item_name(drop.item)
+					action_hints = "[%s] PICK UP %s" % [key_name("interact"), game.item_name(drop.item).to_upper()]
 					break
+		hints.text = action_hints + "\n" + movement_hints
 	if overlay == "planning" and is_instance_valid(grid) and is_instance_valid(planning_preview):
 		if not game.world.inside(grid.hover):
 			planning_preview.text = "Choose a permitted tile · %s · %d scrap · %d°" % [game.catalog.structures[build_id].name, game.build_cost(game.catalog.structures[build_id]), build_rotation]
+			planning_preview.modulate = Color("e8c58c")
 		else:
 			var key = game.world.cell_key(grid.hover)
 			if key == selected_key and game.world.construction.has(key) and planning_action != "move":
 				var item = game.world.construction[key]
 				planning_preview.text = "%s · %s · Level %d · HP %d / %d" % [str(grid.hover), item.name, item.level, item.health, item.max_health]
+				planning_preview.modulate = Color("d5e2e8")
 			else:
 				var reason = game.placement(grid.hover)
 				planning_preview.text = "%s · %s · %d scrap · %d°%s" % [str(grid.hover), game.catalog.structures[build_id].name, game.build_cost(game.catalog.structures[build_id]), build_rotation, " · " + reason if reason != "" else " · Placement permitted"]
+				planning_preview.modulate = Color("eda18b") if reason != "" else Color("7ed9cb")
 	debug_label.visible = debug_visible
 	if debug_visible:
 		var fps = Engine.get_frames_per_second()
