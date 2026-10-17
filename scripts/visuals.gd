@@ -20,6 +20,9 @@ var impacts: Array = []
 var floor_normal: NoiseTexture2D
 var enemy_meshes: Dictionary = {}
 var enemy_material: StandardMaterial3D
+const FLOOR_COLOR = preload("res://assets/materials/floor_diff.jpg")
+const FLOOR_NORMAL = preload("res://assets/materials/floor_nor_gl.jpg")
+const FLOOR_ROUGHNESS = preload("res://assets/materials/floor_rough.jpg")
 
 func material(color: Color, emission: float = 0.0, metal: float = 0.0) -> StandardMaterial3D:
 	var key = str(color) + str(emission) + str(metal)
@@ -87,25 +90,26 @@ func setup(owner_game) -> void:
 	atmosphere.environment.background_mode = Environment.BG_COLOR
 	atmosphere.environment.background_color = Color("101c29")
 	atmosphere.environment.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	atmosphere.environment.ambient_light_color = Color("7193ac")
-	atmosphere.environment.ambient_light_energy = 0.65
+	atmosphere.environment.ambient_light_color = Color("b0bfce")
+	atmosphere.environment.ambient_light_energy = 0.4
 	atmosphere.environment.tonemap_mode = Environment.TONE_MAPPER_FILMIC
 	atmosphere.environment.fog_enabled = true
 	atmosphere.environment.fog_light_color = Color("243747")
 	atmosphere.environment.fog_density = 0.006
+	atmosphere.environment.fog_sky_affect = 0.25
 	add_child(atmosphere)
 	sun = DirectionalLight3D.new()
 	sun.rotation_degrees = Vector3(-52, -35, 0)
-	sun.light_color = Color("b9d6e4")
+	sun.light_color = Color("ffdfb3")
 	sun.light_energy = 1.5
 	sun.shadow_enabled = true
 	add_child(sun)
 	var sky = Sky.new()
 	var sky_material = ProceduralSkyMaterial.new()
-	sky_material.sky_top_color = Color("0e1c35")
-	sky_material.sky_horizon_color = Color("567788")
+	sky_material.sky_top_color = Color("101c30")
+	sky_material.sky_horizon_color = Color("71828d")
 	sky_material.ground_bottom_color = Color("101c29")
-	sky_material.ground_horizon_color = Color("567788")
+	sky_material.ground_horizon_color = Color("586674")
 	sky.sky_material = sky_material
 	atmosphere.environment.sky = sky
 	atmosphere.environment.background_mode = Environment.BG_SKY
@@ -153,6 +157,7 @@ func world_sun_energy() -> float:
 func apply_render_settings() -> void:
 	if not is_instance_valid(post): return
 	var settings = game.profile.data.settings
+	get_viewport().msaa_3d = Viewport.MSAA_2X if settings.quality > 0 else Viewport.MSAA_DISABLED
 	post.visible = int(settings.visual_mode) > 0
 	post.material.set_shader_parameter("display_mode", int(settings.visual_mode))
 	atmosphere.environment.fog_density = world_fog_density()
@@ -218,11 +223,22 @@ func rebuild() -> void:
 		for i in cells.size():
 			mm.set_instance_transform(i, Transform3D(Basis(), world.position(cells[i], -0.075)))
 		multi.multimesh = mm
-		multi.material_override = material(terrain_colors[terrain])
+		multi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		multi.material_override = material(terrain_colors[terrain]).duplicate()
 		multi.material_override.normal_enabled = true
 		multi.material_override.normal_texture = floor_normal
 		multi.material_override.normal_scale = 0.2
+		if terrain in ["concrete", "stone"]:
+			multi.material_override.albedo_color = Color("a6b0b7") if terrain == "concrete" else Color("8e9395")
+			multi.material_override.albedo_texture = FLOOR_COLOR
+			multi.material_override.normal_texture = FLOOR_NORMAL
+			multi.material_override.normal_scale = 0.7
+			multi.material_override.roughness_texture = FLOOR_ROUGHNESS
+			multi.material_override.roughness = 1
+			multi.material_override.metallic = 0
+			multi.material_override.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
 		geometry.add_child(multi)
+	road_markings()
 	for key in world.map.layers.structure:
 		fixed_tile(key)
 	for key in world.construction:
@@ -245,7 +261,7 @@ func rebuild() -> void:
 			light.position.y = 3
 			light.light_color = Color("50e3ce")
 			light.omni_range = 12
-			light.light_energy = 2
+			light.light_energy = 1.2
 			core.add_child(light)
 		elif marker.type == "enemy":
 			cylinder(geometry, pos + Vector3(0, 0.04, 0), 1.25, 0.08, Color("e46e54"), 0.8)
@@ -334,9 +350,48 @@ func fixed_tile(key: String) -> void:
 			collision(body, Vector3(0.4, height, 0.3), Vector3(side * 1.3, height * 0.5, 0))
 	else:
 		if tile.type == "platform": height = minf(0.5, height)
-		box(body, Vector3(0, height * 0.5, 0), Vector3(3, height, 3), color)
+		var wall = box(body, Vector3(0, height * 0.5, 0), Vector3(3, height, 3), color)
+		if tile.type in ["concrete_wall", "permanent", "reinforced"]:
+			var wall_key = "wall_" + tile.type
+			if not materials.has(wall_key):
+				var mat = material(color).duplicate()
+				mat.albedo_color = color.lightened(0.2)
+				mat.albedo_texture = FLOOR_COLOR
+				mat.normal_enabled = true
+				mat.normal_texture = FLOOR_NORMAL
+				mat.normal_scale = 0.5
+				mat.roughness_texture = FLOOR_ROUGHNESS
+				mat.uv1_triplanar = true
+				mat.uv1_scale = Vector3.ONE * 0.33
+				mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
+				materials[wall_key] = mat
+			wall.material_override = materials[wall_key]
 		collision(body, Vector3(3, height, 3), Vector3(0, height * 0.5, 0))
 	box(body, Vector3(0, height - 0.16, -1.51), Vector3(2.7, 0.08, 0.03), Color("6796a0"), 0.2)
+
+func road_markings() -> void:
+	var transforms: Array[Transform3D] = []
+	for key in game.world.map.layers.ground:
+		if game.world.map.layers.ground[key].type != "road": continue
+		var p = game.world.point(key)
+		var horizontal = game.world.map.layers.ground.get(game.world.cell_key(p + Vector2i.RIGHT), {}).get("type") == "road"
+		var vertical = game.world.map.layers.ground.get(game.world.cell_key(p + Vector2i.DOWN), {}).get("type") == "road"
+		if horizontal == vertical: continue
+		var basis = Basis(Vector3.UP, PI * 0.5 if horizontal else 0.0)
+		transforms.append(Transform3D(basis, game.world.position(p, 0.006)))
+	if transforms.is_empty(): return
+	var mesh = BoxMesh.new()
+	mesh.size = Vector3(0.075, 0.008, 1.2)
+	var instances = MultiMesh.new()
+	instances.transform_format = MultiMesh.TRANSFORM_3D
+	instances.mesh = mesh
+	instances.instance_count = transforms.size()
+	for i in transforms.size(): instances.set_instance_transform(i, transforms[i])
+	var markings = MultiMeshInstance3D.new()
+	markings.multimesh = instances
+	markings.material_override = material(Color("b49b61"))
+	markings.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	geometry.add_child(markings)
 
 func remove_fixed(key: String) -> void:
 	if fixed_nodes.has(key) and is_instance_valid(fixed_nodes[key]):
