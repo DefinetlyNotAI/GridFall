@@ -253,7 +253,8 @@ func _physics_process(delta: float) -> void:
 	if grapple_active and not Input.is_action_pressed("grapple"): grapple_active = false
 	if enabled and Input.is_action_just_pressed("sprint"):
 		begin_dash(direction if move.length() > 0 else -transform.basis.z)
-	if enabled and Input.is_action_just_pressed("crouch") and not was_grounded:
+	if enabled and Input.is_action_just_pressed("crouch") and not was_grounded and not slam_active and dash_energy >= 1:
+		dash_energy -= 1
 		slam_active = true
 		dash_timer = 0
 		slide_active = false
