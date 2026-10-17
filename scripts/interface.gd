@@ -3,6 +3,8 @@ extends CanvasLayer
 const Grid = preload("res://scripts/grid_canvas.gd")
 const Hud = preload("res://scripts/hud.gd")
 const Editor = preload("res://scripts/editor.gd")
+const Progression = preload("res://scripts/progression.gd")
+var progression = Progression.new()
 var game
 var root: Control
 var screen: Control
@@ -25,7 +27,7 @@ var selected_key = ""
 var planning_detail: VBoxContainer
 var editor
 var research_filter = ""
-var research_branch = "All"
+var research_branch = "Ballistics"
 var inventory_selected = -1
 var rebind_action = ""
 var planning_action = ""
@@ -35,6 +37,8 @@ var planning_preview: Label
 
 func setup(owner_game) -> void:
 	game = owner_game
+	progression.ui = self
+	progression.game = game
 	var theme = Theme.new()
 	theme.default_font_size = 18
 	theme.set_color("font_color", "Label", Color("d5e2e8"))
@@ -482,84 +486,7 @@ func show_upgrades() -> void:
 	spacer(body)
 
 func show_research() -> void:
-	overlay = "research"
-	var body = page("TECHNOLOGY / %d TP" % game.profile.data.tp, "Permanent research applies to your next run. Follow dependency connections; pan with middle mouse and zoom with the toolbar.")
-	var controls = row(body)
-	var search = LineEdit.new()
-	search.placeholder_text = "Search technology"
-	search.text = research_filter
-	search.custom_minimum_size.x = 360
-	controls.add_child(search)
-	var picker = OptionButton.new()
-	var branches = ["All", "Ballistics", "Engineering", "Fortification", "Biotechnology", "Energy", "Logistics"]
-	for branch in branches: picker.add_item(branch)
-	picker.selected = branches.find(research_branch)
-	controls.add_child(picker)
-	button(controls, "Ascension", show_ascension)
-	if game.profile.data.settings.get("respec_enabled", true): button(controls, "Respec · 90% TP refund", confirm_respec, game.read_run_checkpoint() != null or game.profile.data.research.is_empty())
-	var graph = GraphEdit.new()
-	graph.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	graph.show_arrange_button = false
-	graph.show_grid_buttons = false
-	graph.snapping_enabled = false
-	graph.show_zoom_label = true
-	graph.minimap_enabled = false
-	graph.zoom = 0.75
-	graph.connection_lines_thickness = 2
-	var panel_style = StyleBoxFlat.new()
-	panel_style.bg_color = Color("0c1821")
-	graph.add_theme_stylebox_override("panel", panel_style)
-	graph.add_theme_color_override("grid_major", Color(0.2, 0.4, 0.5, 0.1))
-	graph.add_theme_color_override("grid_minor", Color(0.2, 0.4, 0.5, 0.04))
-	body.add_child(graph)
-	var populate = func():
-		graph.clear_connections()
-		for child in graph.get_children():
-			if child is GraphNode:
-				graph.remove_child(child)
-				child.queue_free()
-		var shown: Dictionary = {}
-		var branch_index = 0
-		for branch in branches.slice(1):
-			if research_branch != "All" and branch != research_branch: continue
-			var row_index = 0
-			for node in game.catalog.technologies:
-				if node.branch != branch or (research_filter != "" and not (node.name + node.description).to_lower().contains(research_filter.to_lower())): continue
-				var rank_value = game.profile.rank(node.id)
-				var color = Color("7fdfb2") if rank_value > 0 else Color("d6e2e8")
-				var graph_node = GraphNode.new()
-				graph_node.name = node.id
-				graph_node.title = node.name
-				graph_node.draggable = false
-				graph_node.position_offset = Vector2(30 + branch_index * 310, 55 + row_index * 255)
-				graph_node.custom_minimum_size = Vector2(275, 210)
-				graph.add_child(graph_node)
-				var col = column(graph_node, 8)
-				col.custom_minimum_size.x = 250
-				label(col, "%s / %s / TIER %d" % [node.get("icon", ""), branch.to_upper(), node.get("tier", 1)], 14, Color("7dd7c6"))
-				label(col, node.description, 15, Color("9fb6c1"))
-				label(col, "Rank %d / %d" % [rank_value, node.max_rank], 15, color)
-				var available = rank_value < node.max_rank
-				for required in node.requires:
-					if game.profile.rank(required) == 0: available = false
-				if not node.requires.is_empty():
-					var names: Array = []
-					for required in node.requires:
-						for candidate in game.catalog.technologies:
-							if candidate.id == required: names.append(candidate.name)
-					label(col, "Requires: " + ", ".join(names), 13, Color("829eac"))
-				button(col, "%d TP · Research" % int(node.cost * (rank_value + 1)) if rank_value < node.max_rank else "Researched", func(): confirm_research(node), not available or game.profile.data.tp < node.cost * (rank_value + 1))
-				graph_node.set_slot(0, not node.requires.is_empty(), 0, color, true, 0, Color("6db9b1"))
-				shown[node.id] = true
-				row_index += 1
-			branch_index += 1
-		for node in game.catalog.technologies:
-			if not shown.has(node.id): continue
-			for required in node.requires:
-				if shown.has(required): graph.connect_node(required, 0, node.id, 0)
-	search.text_changed.connect(func(text): research_filter = text; populate.call())
-	picker.item_selected.connect(func(index): research_branch = branches[index]; populate.call())
-	populate.call()
+	progression.show_research()
 
 func confirm_respec() -> void:
 	var dialog = ConfirmationDialog.new()
@@ -577,6 +504,7 @@ func confirm_respec() -> void:
 func confirm_research(node: Dictionary) -> void:
 	var dialog = ConfirmationDialog.new()
 	dialog.title = "Research " + node.name
+	dialog.get_ok_button().text = "Research rank %d" % (game.profile.rank(node.id) + 1)
 	dialog.dialog_text = "%s\n\nPurchase rank %d for %d Technology Points?" % [node.description, game.profile.rank(node.id) + 1, node.cost * (game.profile.rank(node.id) + 1)]
 	dialog.confirmed.connect(func():
 		var error = game.profile.purchase(node)
@@ -600,38 +528,12 @@ func show_loadout() -> void:
 		if game.profile.perk("dual_loadout") > 0: button(line, "Secondary selected" if game.profile.data.secondary_loadout == id else "Secondary", func(): game.profile.data.secondary_loadout = id; game.profile.save(); show_loadout(), not unlocked)
 
 func show_ascension() -> void:
-	overlay = "ascension"
-	var body = page("ASCENSION / %d CORES" % game.profile.data.cores, "Optional prestige. Lifetime records, achievements, settings, and Ascension purchases are preserved.")
-	var scroll = ScrollContainer.new()
-	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	body.add_child(scroll)
-	var list = column(scroll, 16)
-	list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	var reward = game.profile.ascension_reward(game.catalog.technologies)
-	label(list, "Ascensions %d · Wave record %d · Technologies %d / 120" % [game.profile.data.ascensions, game.profile.data.best, game.profile.data.research.size()], 21)
-	label(list, "Requires wave 25 and 20 researched technologies. Ascending resets all ordinary research and TP, and restores the basic loadout. Core reward depends on invested and unspent TP.", 17, Color("a1b7c1"))
-	button(list, "Ascend · reset research for %d cores" % reward, confirm_ascension, reward == 0 or game.read_run_checkpoint() != null)
-	if game.read_run_checkpoint() != null: label(list, "Finish or abandon the saved run before ascending.", 16)
-	for id in game.profile.ASCENSION_PERKS:
-		var perk = game.profile.ASCENSION_PERKS[id]
-		var rank_value = game.profile.perk(id)
-		label(list, "%s · rank %d / %d" % [perk.name, rank_value, perk.max_rank], 21, Color("8ed8ce"))
-		label(list, perk.description, 17, Color("a1b7c1"))
-		button(list, "Researched" if rank_value >= perk.max_rank else "Research · %d cores" % (rank_value + 1), func():
-			var error = game.profile.purchase_perk(id)
-			notify(error if error != "" else "Ascension research purchased.")
-			show_ascension(), rank_value >= perk.max_rank or game.profile.data.cores < rank_value + 1)
-	if game.profile.perk("mutation") > 0:
-		var picker = OptionButton.new()
-		var ids = ["vitality", "overclock", "salvage"]
-		for text in ["Vitality · +20 health per rank", "Overclock · +8% fire rate per rank", "Salvage · +60 starting scrap per rank"]: picker.add_item(text)
-		picker.selected = ids.find(game.profile.data.mutation)
-		picker.item_selected.connect(func(index): game.profile.data.mutation = ids[index]; game.profile.save())
-		list.add_child(picker)
+	progression.show_ascension()
 
 func confirm_ascension() -> void:
 	var dialog = ConfirmationDialog.new()
 	dialog.title = "Ascend and reset ordinary research?"
+	dialog.get_ok_button().text = "Ascend"
 	dialog.dialog_text = "All ordinary research and Technology Points will reset. Receive %d Ascension Cores. This is optional and cannot be undone." % game.profile.ascension_reward(game.catalog.technologies)
 	dialog.confirmed.connect(func():
 		var error = game.ascend()
