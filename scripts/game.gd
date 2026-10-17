@@ -563,9 +563,8 @@ func hit_body(body: Object, amount: float, source: String, origin: Vector3 = Vec
 			var fire_damage = "incendiary" in modifiers
 			tile.health -= amount * (float(tile.get("fire", definition.fire)) if fire_damage else 1 - float(tile.get("resistance", definition.resistance)))
 			if tile.health <= 0:
-				world.map.layers.structure.erase(key)
+				world.remove_structure(key)
 				visuals.remove_fixed(key)
-				world.rebuild_flow()
 			else:
 				var ratio = tile.health / maxf(1, tile.get("max_health", definition.health))
 				var shade = 0.0 if ratio > 0.66 else (0.15 if ratio > 0.33 else 0.3)
@@ -721,7 +720,6 @@ func damage_structure(key: String, amount: float) -> void:
 		visuals.burst(world.position(world.point(key), 1), Color(item.color), 10)
 		world.construction.erase(key)
 		visuals.structure(key)
-		world.rebuild_flow()
 
 func build(p: Vector2i, id: String, facing: int = 0) -> String:
 	if state != "preparation":
@@ -759,7 +757,6 @@ func build(p: Vector2i, id: String, facing: int = 0) -> String:
 	scrap -= cost
 	stats.spent += cost
 	stats.built += 1
-	world.rebuild_flow()
 	visuals.structure(world.cell_key(p))
 	audio.cue("build", world.position(p), 0.5)
 	return ""
@@ -780,7 +777,6 @@ func manage_structure(key: String, action: String) -> String:
 			scrap += int(item.invested * 0.65 * maxf(0.2, item.health / item.max_health))
 		world.construction.erase(key)
 		visuals.structure(key)
-		world.rebuild_flow()
 		return ""
 	if action == "target":
 		item.target_mode = (int(item.target_mode) + 1) % TARGET_MODES.size()
@@ -838,7 +834,6 @@ func move_structure(key: String, destination: Vector2i) -> String:
 	stats.spent += price
 	visuals.structure(key)
 	visuals.structure(next_key)
-	world.rebuild_flow()
 	return ""
 
 func replace_structure(key: String, id: String) -> String:
@@ -1180,9 +1175,8 @@ func interact() -> void:
 		var key = str(hit.collider.get_meta("tile"))
 		var tile = world.map.layers.structure.get(key, {})
 		if tile.get("type") == "door" and not tile.get("locked", false):
-			world.map.layers.structure.erase(key)
+			world.remove_structure(key)
 			hit.collider.queue_free()
-			world.rebuild_flow()
 			audio.cue("build", hit.position)
 			return
 	if state == "preparation":
@@ -1611,9 +1605,8 @@ func update_enemies(delta: float) -> void:
 					var resistance = float(tile.get("resistance", world.WALL_DEFS[tile.type].resistance))
 					tile.health -= enemy.damage * (1 - resistance)
 					if tile.health <= 0:
-						world.map.layers.structure.erase(target_key)
+						world.remove_structure(target_key)
 						visuals.remove_fixed(target_key)
-						world.rebuild_flow()
 				visuals.beam(pos + Vector3.UP, target + Vector3.UP, Color(enemy.color), 0.05, 0.12)
 		else:
 			enemy.ai = "navigate"

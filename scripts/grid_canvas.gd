@@ -53,6 +53,13 @@ func _draw() -> void:
 	var world = game.world
 	cell_size = minf(size.x / float(world.map.width + 2), size.y / float(world.map.height + 2)) * zoom
 	offset = (size - Vector2(world.map.width, world.map.height) * cell_size) * 0.5 + pan
+	for key in world.construction:
+		var p = world.point(key)
+		var rect = Rect2(offset + Vector2(p) * cell_size, Vector2.ONE * (cell_size - (0.6 if not miniature else 0)))
+		var item = world.construction[key]
+		draw_rect(rect.grow(-cell_size * 0.16), Color(item.color))
+		if cell_size > 16:
+			draw_string(ThemeDB.fallback_font, rect.position + Vector2(cell_size * 0.25, cell_size * 0.75), str(item.id).left(1).to_upper(), HORIZONTAL_ALIGNMENT_LEFT, -1, int(cell_size * 0.6), Color("101c25"))
 	if not editor:
 		for enemy in game.enemies.values():
 			var pos = offset + Vector2(enemy.node.position.x, enemy.node.position.z) / 3 * cell_size
@@ -101,11 +108,6 @@ func draw_terrain(canvas: CanvasItem) -> void:
 				canvas.draw_circle(rect.get_center(), cell_size * 0.12, Color("ffdc92"))
 			if visible_layers.height and world.map.layers.height.has(key):
 				canvas.draw_rect(rect.grow(-cell_size * 0.1), Color("a1b5cb"), false, 1.5)
-			if world.construction.has(key):
-				var item = world.construction[key]
-				canvas.draw_rect(rect.grow(-cell_size * 0.16), Color(item.color))
-				if cell_size > 16:
-					canvas.draw_string(ThemeDB.fallback_font, rect.position + Vector2(cell_size * 0.25, cell_size * 0.75), str(item.id).left(1).to_upper(), HORIZONTAL_ALIGNMENT_LEFT, -1, int(cell_size * 0.6), Color("101c25"))
 			if visible_layers.markers and world.map.layers.markers.has(key):
 				var marker = world.map.layers.markers[key]
 				var c = Color("5ce6d4")

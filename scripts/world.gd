@@ -312,6 +312,31 @@ func can_destroy(p: Vector2i) -> bool:
 	var resistance = float(tile.get("resistance", WALL_DEFS.get(tile.type, {}).get("resistance", 0.0)))
 	return float(tile.get("health", WALL_DEFS[tile.type].health)) > 0 and resistance < 1.0
 
+func remove_structure(key: String) -> void:
+	var tile: Dictionary = map.layers.structure.get(key, {})
+	if not map.layers.structure.erase(key): return
+	var p = point(key)
+	var index = p.y * int(map.width) + p.x
+	var walkable = 1 if not fixed_solid(p) or can_destroy(p) else 0
+	# Breakable cover is already traversable in enemy route planning.
+	if nav_walkable[index] != walkable:
+		rebuild_flow()
+	else:
+		nav_revision += 1
+		if tile.type in ["ramp", "stairs"]: refresh_slopes()
+
+func refresh_slopes() -> void:
+	flat_floor = complete_floor
+	sloped_cells.clear()
+	if not complete_floor: return
+	for key in map.layers.structure:
+		var tile = map.layers.structure[key]
+		if tile.type in ["ramp", "stairs"]:
+			flat_floor = false
+			var p = point(key)
+			for dy in range(-1, 2):
+				for dx in range(-1, 2): sloped_cells[cell_key(p + Vector2i(dx, dy))] = true
+
 func rebuild_flow() -> void:
 	var start = Time.get_ticks_usec()
 	nav_revision += 1
@@ -336,16 +361,7 @@ func rebuild_flow() -> void:
 			uniform_cost = 0.0
 			break
 	complete_floor = map.layers.ground.size() == int(map.width) * int(map.height)
-	flat_floor = complete_floor
-	sloped_cells.clear()
-	if flat_floor:
-		for key in map.layers.structure:
-			var tile = map.layers.structure[key]
-			if tile.type in ["ramp", "stairs"]:
-				flat_floor = false
-				var p = point(key)
-				for dy in range(-1, 2):
-					for dx in range(-1, 2): sloped_cells[cell_key(p + Vector2i(dx, dy))] = true
+	refresh_slopes()
 	var target = marker("objective")
 	flow = navigation_field(target)
 	nav_ms = (Time.get_ticks_usec() - start) / 1000.0
