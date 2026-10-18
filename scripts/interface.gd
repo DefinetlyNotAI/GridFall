@@ -36,6 +36,9 @@ var build_rotation = 0
 var planning_preview: Label
 var loadout_selected = ""
 var settings_section = "Gameplay"
+var hud_refresh = 0.0
+var planning_category = 0
+var planning_schedule = false
 
 func setup(owner_game) -> void:
 	game = owner_game
@@ -89,7 +92,7 @@ func setup(owner_game) -> void:
 	hud.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	root.add_child(hud)
 	hud_top = floating_label(hud, Vector2(30, 22), 22)
-	boss_label = floating_label(hud, Vector2(30, 135), 18)
+	boss_label = floating_label(hud, Vector2(30, 165), 18)
 	hud_left = floating_label(hud, Vector2(30, 720), 22)
 	hud_left.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_LEFT)
 	hud_left.offset_left = 30
@@ -435,6 +438,7 @@ func show_planning() -> void:
 	var scroll = ScrollContainer.new()
 	scroll.custom_minimum_size.x = 360
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	detail_panel.add_child(scroll)
 	planning_detail = column(scroll)
 	planning_detail.custom_minimum_size.x = 335
@@ -452,27 +456,51 @@ func refresh_planning() -> void:
 	label(planning_detail, "Next event: " + (game.upcoming_event(game.wave + 1) if game.upcoming_event(game.wave + 1) != "" else "Standard assault"), 16)
 	var faction = game.Rules.faction(game.stats, game.wave + 1, game.adaptive_run)
 	if faction != "None": label(planning_detail, faction + " / " + game.Rules.faction_detail(faction), 15, Color("dbb087"))
-	for event in game.world.map.events:
-		if event.id not in game.world.applied: label(planning_detail, "After wave %d: %s" % [event.round, event.message], 14, Color("8ca6b4"))
+	var pending_events = game.world.map.events.filter(func(event): return event.id not in game.world.applied)
+	if not pending_events.is_empty():
+		button(planning_detail, "%s world schedule / %d events" % ["Hide" if planning_schedule else "Show", pending_events.size()], func(): planning_schedule = not planning_schedule; refresh_planning())
+		if planning_schedule:
+			for event in pending_events: label(planning_detail, "After wave %d: %s" % [event.round, event.message], 14, Color("8ca6b4"))
 	if selected_key != "" and game.world.construction.has(selected_key):
 		var item = game.world.construction[selected_key]
 		label(planning_detail, item.name + " · L%d" % item.level, 22)
 		label(planning_detail, "HP %d / %d\nDamage %.0f · Range %.1fm\n%s" % [item.health, item.max_health, item.damage, item.range, item.branch], 17)
-		button(planning_detail, "Repair · %d scrap" % int(ceil((item.max_health - item.health) * 0.15 * (1 - game.bonus("repair_efficiency")))), func(): manage("repair"), not game.repairs_allowed())
-		button(planning_detail, "Upgrade: %s · %d" % ["Precision" if item.kind == "tower" else "Reinforce", int(item.cost * game.catalog.structure_upgrades.power.cost * item.level)], func(): manage("power"), item.level >= 4 or item.get("branch_id", "") not in ["", "power"])
-		button(planning_detail, "Upgrade: Gatling · %d" % int(item.cost * game.catalog.structure_upgrades.rapid.cost * item.level), func(): manage("rapid"), item.level >= 4 or item.kind != "tower" or item.get("branch_id", "") not in ["", "rapid"])
-		if game.perk("tower_evolution") > 0 and item.kind == "tower": button(planning_detail, "Upgrade: Resonant · %d" % int(item.cost * 0.85 * item.level), func(): manage("resonant"), item.level >= 4 or item.get("branch_id", "") not in ["", "resonant"])
+		section(planning_detail, "SERVICE & SPECIALIZATION")
+		var repair_cost = int(ceil((item.max_health - item.health) * 0.15 * (1 - game.bonus("repair_efficiency"))))
+		button(planning_detail, "Repair · %d scrap" % repair_cost, func(): manage("repair"), not game.repairs_allowed() or item.health >= item.max_health or game.scrap < repair_cost)
+		for branch_id in ["power", "rapid", "resonant"]:
+			if branch_id != "power" and item.kind != "tower": continue
+			if branch_id == "resonant" and game.perk("tower_evolution") == 0: continue
+			var branch = game.catalog.structure_upgrades[branch_id]
+			var price = int(item.cost * branch.cost * item.level)
+			var branch_name = branch.name if item.kind == "tower" else "Reinforce"
+			button(planning_detail, "%s · %d scrap" % [branch_name, price], func(): manage(branch_id), item.level >= 4 or item.get("branch_id", "") not in ["", branch_id] or game.scrap < price)
 		button(planning_detail, "Target: " + game.TARGET_MODES[int(item.target_mode)], func(): manage("target"), item.kind != "tower")
-		button(planning_detail, "Sell · 65% of remaining value", func(): manage("sell"))
+		section(planning_detail, "PLACEMENT & SALVAGE")
+		button(planning_detail, "Sell · %d scrap" % int(item.invested * 0.65 * maxf(0.2, item.health / item.max_health)), func(): manage("sell"))
 		button(planning_detail, "Demolish", func(): manage("demolish"))
 		button(planning_detail, "Rotate 90°", func(): manage("rotate"))
 		button(planning_detail, "Move · %d scrap" % maxi(1, int(ceil(item.cost * 0.1))), func(): planning_action = "move"; notify("Choose a permitted destination tile."))
 		button(planning_detail, "Replace using resale credit", func(): replace_key = selected_key; selected_key = ""; planning_action = "replace"; refresh_planning())
 		button(planning_detail, "Construction catalog", func(): selected_key = ""; planning_action = ""; refresh_planning())
 	else:
-		label(planning_detail, "CONSTRUCTION", 17, Color("77d7c4"))
+		section(planning_detail, "CONSTRUCTION")
+		var categories = OptionButton.new()
+		for category in ["All structures", "Attack towers", "Defenses & traps", "Support & economy"]: categories.add_item(category)
+		categories.selected = planning_category
+		categories.item_selected.connect(func(index): planning_category = index; refresh_planning())
+		planning_detail.add_child(categories)
+		var selected = game.catalog.structures[build_id]
+		label(planning_detail, selected.name, 23, Color("e3bb7d"))
+		label(planning_detail, "%d scrap · %d HP · %.0fm range" % [game.build_cost(selected), selected.health, selected.range], 16, Color("92abb8"))
+		if selected.damage > 0:
+			label(planning_detail, "%.0f damage%s" % [selected.damage, " / %.2fs" % selected.interval if selected.interval > 0 else " per trigger"], 16)
+		if game.scrap < game.build_cost(selected): label(planning_detail, "Need %d more scrap" % (game.build_cost(selected) - game.scrap), 15, Color("e3bb7d"))
 		for id in game.catalog.structures:
 			var definition = game.catalog.structures[id]
+			if planning_category == 1 and definition.kind != "tower": continue
+			if planning_category == 2 and definition.kind not in ["wall", "trap", "shield"]: continue
+			if planning_category == 3 and definition.kind not in ["support", "repair", "generator", "ammo"]: continue
 			var text = ("> " if id == build_id else "") + definition.name + " · %d" % game.build_cost(definition)
 			var item = button(planning_detail, text, func():
 				build_id = id
@@ -483,6 +511,9 @@ func refresh_planning() -> void:
 					planning_action = ""
 				refresh_planning(), not game.unlocked(definition) or (not game.repairs_allowed() and definition.kind == "repair"))
 			item.tooltip_text = "HP %d · damage %d · range %.0fm%s" % [definition.health, definition.damage, definition.range, "\nResearch: " + definition.tech if definition.tech != "" else ""]
+			item.alignment = HORIZONTAL_ALIGNMENT_LEFT
+			item.add_theme_font_size_override("font_size", 16)
+			if id == build_id: item.modulate = Color("7ed9cb")
 
 func manage(action: String) -> void:
 	var reason = game.manage_structure(selected_key, action)
@@ -849,6 +880,7 @@ func show_sandbox() -> void:
 	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	button(top, "Close [%s]" % key_name("pause"), close_overlay)
 	label(body, "No TP, records, or permanent rewards. Simulation continues while these controls are open.", 18, Color("ebc891"))
+	body = scroll_column(body, 16)
 	var controls = row(body)
 	label(controls, "Next wave", 18).custom_minimum_size.x = 140
 	var number = SpinBox.new()
@@ -1020,7 +1052,9 @@ func _process(delta: float) -> void:
 	notice.visible = notice_time > 0
 	hud.visible = game.playing() and overlay == ""
 	hud.queue_redraw()
-	if game.playing():
+	hud_refresh = maxf(0, hud_refresh - delta)
+	if game.playing() and overlay == "" and hud_refresh <= 0:
+		hud_refresh = 0.1
 		boss_label.visible = false
 		hud.boss_ratio = -1
 		for enemy in game.enemies.values():
@@ -1039,16 +1073,20 @@ func _process(delta: float) -> void:
 			var weapon = game.weapons[game.active_weapon]
 			var reload_status = " · RELOADING %.1fs" % game.reload_timer if game.reload_timer > 0 else ""
 			hud_right.text = "%s\n%d / %d%s\nLV %d · XP %d / %d" % [game.item_name(weapon).to_upper(), weapon.ammo, weapon.reserve, reload_status, game.level, game.xp, game.next_xp]
-		var action_hints = "[%s] PLAN  ·  [%s] START WAVE  ·  [%s] INVENTORY  ·  [%s] COLLECT / SUPPLY  ·  [%s] RELOAD  ·  [%s] HEAL  ·  [%s] GRENADE  ·  [%s] PAUSE" % [key_name("planning"), key_name("next_wave"), key_name("inventory"), key_name("interact"), key_name("reload"), key_name("heal"), key_name("grenade"), key_name("pause")]
+		var action_hints = "[%s] BUILD  ·  [%s] START WAVE  ·  [%s] SUPPLY" % [key_name("planning"), key_name("next_wave"), key_name("interact")]
 		if game.state == "wave":
-			action_hints = "LMB FIRE  ·  RMB AIM  ·  [%s] / [%s] WEAPONS  ·  [%s] RELOAD  ·  [%s] PULSE  ·  [%s] COLLECT  ·  [%s] HEAL  ·  [%s] GRENADE  ·  [%s] PAUSE" % [key_name("weapon1"), key_name("weapon2"), key_name("reload"), key_name("ability"), key_name("interact"), key_name("heal"), key_name("grenade"), key_name("pause")]
-		var movement_hints = "[%s] DASH  ·  [%s] SLIDE / SLAM  ·  [%s] WALL JUMP  ·  [%s] GRAPPLE  ·  [%s] PUNCH / PARRY" % [key_name("sprint"), key_name("crouch"), key_name("jump"), key_name("grapple"), key_name("punch")]
+			action_hints = "LMB FIRE / RMB AIM  ·  [%s] JUMP / WALL JUMP  ·  [%s] DASH  ·  [%s] SLIDE / SLAM  ·  [%s] GRAPPLE  ·  [%s] PARRY" % [key_name("jump"), key_name("sprint"), key_name("crouch"), key_name("grapple"), key_name("punch")]
+		var supplies = "[%s] MEDKIT %d  ·  [%s] GRENADE %d  ·  [%s]/[%s] WEAPONS  ·  [%s] RELOAD  ·  [%s] INVENTORY  ·  [%s] PAUSE" % [key_name("heal"), game.consumables.medkit, key_name("grenade"), game.consumables.grenade, key_name("weapon1"), key_name("weapon2"), key_name("reload"), key_name("inventory"), key_name("pause")]
 		if not game.drops.is_empty() and is_instance_valid(game.player):
+			var nearest_distance = 3.5 * 3.5
+			var nearest_name = ""
 			for drop in game.drops:
-				if drop.pos.distance_to(game.player.position) < 3.5:
-					action_hints = "[%s] PICK UP %s" % [key_name("interact"), game.item_name(drop.item).to_upper()]
-					break
-		hints.text = action_hints + "\n" + movement_hints
+				var distance = drop.pos.distance_squared_to(game.player.position)
+				if distance < nearest_distance:
+					nearest_distance = distance
+					nearest_name = game.item_name(drop.item).to_upper()
+			if nearest_name != "": action_hints = "[%s] PICK UP %s" % [key_name("interact"), nearest_name]
+		hints.text = action_hints + "\n" + supplies
 	if overlay == "planning" and is_instance_valid(grid) and is_instance_valid(planning_preview):
 		if not game.world.inside(grid.hover):
 			planning_preview.text = "Choose a permitted tile · %s · %d scrap · %d°" % [game.catalog.structures[build_id].name, game.build_cost(game.catalog.structures[build_id]), build_rotation]

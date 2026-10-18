@@ -17,6 +17,7 @@ var selection_b = Vector2i(-1, -1)
 var path = ""
 var status: Label
 var palette: OptionButton
+var tool_buttons: Dictionary = {}
 var layers = ["ground", "structure", "height", "markers", "objects", "decoration", "lighting"]
 var authoring: Dictionary = {}
 
@@ -40,20 +41,13 @@ func show_editor() -> void:
 	var top = ui.row(body, 8)
 	var title = ui.label(top, "SANDBOX / " + str(game.world.map.name), 25)
 	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	ui.button(top, "New", new_map_dialog)
-	ui.button(top, "Load / Import JSON", load_map_dialog)
-	ui.button(top, "Save", func(): save_map(false))
-	ui.button(top, "Save As / Export", func(): save_map(true))
 	ui.button(top, "Playtest", playtest)
 	ui.button(top, "Menu", func(): authoring = game.world.map.duplicate(true); game.to_menu())
-	var toolbar = ui.row(body, 8)
-	for item in tools:
-		ui.button(toolbar, item, func(): tool = item; corner = Vector2i(-1, -1); set_status("Tool: " + tool), false)
-	ui.button(toolbar, "Undo", undo)
-	ui.button(toolbar, "Redo", redo)
-	ui.button(toolbar, "Copy", copy_selection)
-	ui.button(toolbar, "Rotate 90°", func(): rotation = (rotation + 90) % 360; set_status("Rotation %d°" % rotation))
-	ui.label(body, "Custom maps are sandbox only. Paint with left mouse; right mouse erases. Rectangle and selection use two clicks. Wheel zooms; middle drag pans.", 15, Color("93afbd"))
+	var files = ui.row(body, 8)
+	ui.button(files, "New map", new_map_dialog)
+	ui.button(files, "Load / Import", load_map_dialog)
+	ui.button(files, "Save", func(): save_map(false))
+	ui.button(files, "Save As / Export", func(): save_map(true))
 	var content = ui.row(body, 20)
 	content.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	grid = ui.Grid.new()
@@ -62,28 +56,52 @@ func show_editor() -> void:
 	grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	grid.selected.connect(click)
 	content.add_child(grid)
-	var side_scroll = ScrollContainer.new()
-	side_scroll.custom_minimum_size.x = 330
-	content.add_child(side_scroll)
-	var side = ui.column(side_scroll)
-	side.custom_minimum_size.x = 305
-	ui.label(side, "AUTHORING LAYERS", 17, Color("7ed8c4"))
+	var side = ui.scroll_column(content, 12)
+	side.custom_minimum_size.x = 300
+	var side_scroll: ScrollContainer = side.get_parent()
+	side_scroll.custom_minimum_size.x = 300
+	side_scroll.size_flags_horizontal = Control.SIZE_FILL
+	ui.section(side, "TOOLS")
+	var tool_grid = GridContainer.new()
+	tool_grid.columns = 2
+	tool_grid.add_theme_constant_override("h_separation", 8)
+	tool_grid.add_theme_constant_override("v_separation", 8)
+	side.add_child(tool_grid)
+	tool_buttons.clear()
+	for item in tools:
+		var tool_button = ui.button(tool_grid, item, func(): _select_tool(item))
+		tool_button.toggle_mode = true
+		tool_buttons[item] = tool_button
+	_refresh_tool_buttons()
+	var edit_actions = GridContainer.new()
+	edit_actions.columns = 2
+	edit_actions.add_theme_constant_override("h_separation", 8)
+	edit_actions.add_theme_constant_override("v_separation", 8)
+	side.add_child(edit_actions)
+	ui.button(edit_actions, "Undo", undo)
+	ui.button(edit_actions, "Redo", redo)
+	ui.button(edit_actions, "Copy", copy_selection)
+	ui.button(edit_actions, "Rotate 90 deg", func(): rotation = (rotation + 90) % 360; set_status("Rotation %d deg" % rotation))
+	ui.section(side, "LAYER & TILE")
 	var layer_picker = OptionButton.new()
 	for name_value in layers: layer_picker.add_item(name_value.capitalize())
 	layer_picker.selected = layers.find(layer)
 	layer_picker.item_selected.connect(func(index): layer = layers[index]; update_palette())
+	layer_picker.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	side.add_child(layer_picker)
 	palette = OptionButton.new()
 	palette.item_selected.connect(func(index): tile_type = palette.get_item_text(index))
+	palette.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	side.add_child(palette)
 	update_palette()
-	ui.label(side, "VISIBILITY", 16)
+	ui.section(side, "VISIBLE LAYERS")
 	for layer_name in layers:
 		var check = CheckBox.new()
 		check.text = layer_name.capitalize()
 		check.button_pressed = true
 		check.toggled.connect(func(value): grid.visible_layers[layer_name] = value)
 		side.add_child(check)
+	ui.section(side, "WORLD AUTHORING")
 	ui.button(side, "Map metadata", metadata_dialog)
 	ui.button(side, "World rules", world_rules_dialog)
 	ui.button(side, "Evolution events", evolution_events_dialog)
@@ -91,8 +109,21 @@ func show_editor() -> void:
 	ui.button(side, "Templates", templates_dialog)
 	ui.button(side, "Share / import code", share_dialog)
 	ui.button(side, "Validate", validate_map)
-	ui.label(side, "Inspect a tile to edit height, elevation, health, rotation, or construction permission.", 16, Color("93afbd"))
+	ui.section(side, "GUIDE & STATUS")
+	ui.label(side, "Custom maps are sandbox only. Paint with left mouse; right mouse erases. Rectangle and selection use two clicks. Wheel zooms; middle drag pans.", 14, Color("93afbd"))
+	ui.label(side, "Inspect a tile to edit height, elevation, health, rotation, or construction permission.", 14, Color("93afbd"))
 	status = ui.label(side, "Full world authoring enabled.\nThis map cannot earn TP.", 16, Color("f0c58d"))
+
+func _select_tool(value: String) -> void:
+	tool = value
+	corner = Vector2i(-1, -1)
+	_refresh_tool_buttons()
+	set_status("Tool: " + tool)
+
+func _refresh_tool_buttons() -> void:
+	for name_value in tool_buttons:
+		var button: Button = tool_buttons[name_value]
+		button.button_pressed = name_value == tool
 
 func set_status(text: String) -> void:
 	if is_instance_valid(status): status.text = text
@@ -212,6 +243,7 @@ func copy_selection() -> void:
 			if game.world.map.layers[layer].has(key):
 				clipboard[game.world.cell_key(p - selection_a)] = game.world.map.layers[layer][key].duplicate(true)
 	tool = "Paste"
+	_refresh_tool_buttons()
 	set_status("Copied %d tiles from %s. Click to paste." % [clipboard.size(), layer])
 
 func inspect(p: Vector2i) -> void:
