@@ -65,6 +65,7 @@ var upgrade_picks = 0
 var xp = 0
 var level = 1
 var next_xp = 30
+var pending_levels = 0
 var reward_pending = false
 var last_reward = 0
 var defeat_reason = ""
@@ -304,6 +305,7 @@ func start_run(run_mode: String = "endless", custom: Dictionary = {}, restoring:
 	level = 1
 	xp = 0
 	next_xp = 30
+	pending_levels = 0
 	fire_timer = 0
 	reload_timer = 0
 	ability_timer = 0
@@ -391,20 +393,51 @@ func modules(item: Dictionary) -> Dictionary:
 
 func magazine_size(item: Dictionary) -> int:
 	if not catalog.weapons.has(item.id): return 0
-	return int(ceil(catalog.weapons[item.id].magazine * (1.3 if modules(item).has("magazine") else 1.0)))
+	return int(ceil(catalog.weapons[item.id].magazine * float(weapon_traits(item).get("magazine_mult", 1.0))))
+
+func combine_traits(definitions: Array) -> Dictionary:
+	var result: Dictionary = {}
+	for definition in definitions:
+		for key in definition.get("stats", {}):
+			var value = float(definition.stats[key])
+			if str(key).ends_with("_mult"): result[key] = float(result.get(key, 1.0)) * value
+			elif str(key).ends_with("_duration"): result[key] = maxf(float(result.get(key, 0.0)), value)
+			else: result[key] = float(result.get(key, 0.0)) + value
+	return result
+
+func modifier_definitions(ids: Array) -> Array:
+	var result: Array = []
+	for definition in catalog.loot.weapon_modifiers:
+		if definition.id in ids: result.append(definition)
+	return result
+
+func weapon_traits(item: Dictionary) -> Dictionary:
+	var definitions = modifier_definitions(item.get("mods", []))
+	for id in modules(item):
+		if catalog.get("attachments", {}).has(id): definitions.append(catalog.attachments[id])
+	return combine_traits(definitions)
+
+func hit_traits(ids: Array, elemental: bool) -> Dictionary:
+	var definitions = modifier_definitions(ids)
+	if elemental: definitions.append(catalog.attachments.elemental)
+	return combine_traits(definitions)
+
+func attachment_compatible(id: String, item: Dictionary) -> bool:
+	if not catalog.weapons.has(item.id) or not catalog.get("attachments", {}).has(id): return false
+	return catalog.weapons[item.id].loot_mechanism in catalog.attachments[id].compatible_mechanisms
 
 func weapon_stats(item: Dictionary) -> Dictionary:
 	if not catalog.weapons.has(item.id): return {"damage": 0, "interval": 0, "magazine": 0, "reload": 0, "range": 0, "spread": 0}
 	var definition = catalog.weapons[item.id]
-	var equipped = modules(item)
-	var modifiers: Array = item.get("mods", [])
+	var traits = weapon_traits(item)
 	return {
-		"damage": definition.damage * item.roll * (1 + bonus("damage")) * (1.2 if equipped.has("barrel") else 1.0),
-		"interval": maxf(0.06, definition.interval / (1 + bonus("fire_rate"))) * (0.8 if "overclocked" in modifiers else 1.0),
+		"damage": definition.damage * item.roll * (1 + bonus("damage")) * float(traits.get("damage_mult", 1.0)),
+		"interval": maxf(0.06, definition.interval / (1 + bonus("fire_rate")) * float(traits.get("interval_mult", 1.0))),
 		"magazine": magazine_size(item),
-		"reload": maxf(0.25, definition.reload / (1 + bonus("reload"))) if definition.magazine > 0 else 0.0,
+		"reload": maxf(0.25, definition.reload / (1 + bonus("reload")) * float(traits.get("reload_mult", 1.0))) if definition.magazine > 0 else 0.0,
 		"range": definition.range * (1 + bonus("range")),
-		"spread": definition.spread * (0.4 if equipped.has("optic") else 1.0) * (0.75 if equipped.has("grip") else 1.0) * (0.6 if "stabilized" in modifiers else 1.0)
+		"spread": definition.spread * float(traits.get("spread_mult", 1.0)),
+		"recoil_mult": float(traits.get("recoil_mult", 1.0))
 	}
 
 func weapon_def() -> Dictionary:
@@ -444,6 +477,7 @@ func fire(direction: Vector3 = Vector3.ZERO) -> void:
 	var modifiers: Array = item.get("mods", [])
 	var equipped = modules(item)
 	var resolved = weapon_stats(item)
+	var traits = weapon_traits(item)
 	if definition.magazine > 0 and item.ammo <= 0:
 		reload_weapon()
 		return
@@ -461,7 +495,7 @@ func fire(direction: Vector3 = Vector3.ZERO) -> void:
 	for i in int(definition.pellets) + int(bonus("projectiles")):
 		var shot = (aim + player.camera.global_basis.x * rng.randf_range(-spread, spread) + player.camera.global_basis.y * rng.randf_range(-spread, spread)).normalized()
 		if definition.speed > 0:
-			launch(from + shot * 0.7, shot * float(definition.speed), amount, definition.splash + (1.2 if "volatile" in modifiers else 0.0), "weapon", Color(definition.color), float(resolved.range) / definition.speed)
+			launch(from + shot * 0.7, shot * float(definition.speed), amount, definition.splash + float(traits.get("splash_bonus", 0)), "weapon", Color(definition.color), float(resolved.range) / definition.speed)
 		else:
 			var end = from + shot * float(resolved.range)
 			var cursor = from
@@ -477,15 +511,15 @@ func fire(direction: Vector3 = Vector3.ZERO) -> void:
 				if item.id == "shotgun" and enemies.has(uid) and enemies[uid].slow > 0: hit_damage *= 1.25
 				hit_body(hit.collider, hit_damage, "weapon", from)
 				visuals.burst(hit.position, Color(definition.color), 3, 0.3)
-				if "volatile" in modifiers and is_enemy: explosion(hit.position, amount * 0.25, 2.5, "weapon")
-				if not is_enemy and ("ricochet" in modifiers or rng.randf() < bonus("ricochet")):
+				if traits.get("proc_damage_ratio", 0) > 0 and is_enemy: explosion(hit.position, amount * float(traits.proc_damage_ratio), float(traits.get("proc_radius", 2.5)), "weapon")
+				if not is_enemy and rng.randf() < minf(1.0, bonus("ricochet") + float(traits.get("bounce_chance", 0))):
 					var reflected = shot.bounce(hit.normal)
 					var bounce_from = hit.position + hit.normal * 0.06
-					var bounce_end = bounce_from + reflected * resolved.range * 0.6
+					var bounce_end = bounce_from + reflected * resolved.range * float(traits.get("bounce_range_mult", 0.6))
 					var bounce_hit = ray(bounce_from, bounce_end)
 					if not bounce_hit.is_empty():
 						bounce_end = bounce_hit.position
-						hit_body(bounce_hit.collider, amount * 0.65, "weapon", from)
+						hit_body(bounce_hit.collider, amount * float(traits.get("bounce_damage_mult", 0.65)), "weapon", from)
 					visuals.beam(bounce_from, bounce_end, Color(definition.color))
 				if not is_enemy or penetration == (2 if item.id == "sniper" else 0):
 					end = hit.position
@@ -493,7 +527,7 @@ func fire(direction: Vector3 = Vector3.ZERO) -> void:
 				cursor = hit.position + shot * 0.05
 			visuals.beam(from + player.camera.global_basis.x * 0.2 - Vector3(0, 0.1, 0), end, Color(definition.color))
 	if profile.data.settings.shake:
-		player.recoil = minf(0.05, player.recoil + (0.008 if equipped.has("grip") else 0.012))
+		player.recoil = minf(0.05, player.recoil + 0.012 * resolved.recoil_mult)
 	audio.cue("shot", from, 0.5)
 
 func punch() -> void:
@@ -614,6 +648,7 @@ func damage_enemy(uid: int, amount: float, source: String, origin: Vector3 = Vec
 	if enemy.health <= 0:
 		return
 	var armor = float(enemy.armor)
+	if source == "weapon" and enemy.slow > 0: amount *= 1 + bonus("shatter")
 	if source in ["weapon", "proc"]: armor = maxf(0, armor - bonus("penetration"))
 	if enemy.type == "shielded" and origin != Vector3.ZERO:
 		var incoming = (origin - enemy.node.position).normalized()
@@ -637,20 +672,21 @@ func damage_enemy(uid: int, amount: float, source: String, origin: Vector3 = Vec
 		visuals.damage_number(enemy.node.position + Vector3.UP * 2.2, actual)
 		var modifiers: Array = effects.get("mods", weapons[active_weapon].get("mods", []))
 		var elemental = effects.get("elemental", modules(weapons[active_weapon]).has("elemental"))
-		if bonus("burn") > 0 or "incendiary" in modifiers or elemental:
-			var burn = bonus("burn") + (4 if "incendiary" in modifiers else 0) + (3 if elemental else 0)
+		var traits = hit_traits(modifiers, elemental)
+		if bonus("burn") > 0 or traits.get("burn_dps", 0) > 0:
+			var burn = (bonus("burn") + float(traits.get("burn_dps", 0))) * (1 - enemy.status_resist)
 			if burn >= enemy.burn:
 				enemy.burn = burn
 				enemy.burn_source = "weapon"
-			enemy.burn_time = 3.0
-		if bonus("slow") + bonus("freeze") > 0 or "frost" in modifiers:
-			enemy.slow = maxf(enemy.slow, (bonus("slow") + bonus("freeze") + (0.18 if "frost" in modifiers else 0)) * (1 - enemy.status_resist))
-			enemy.slow_time = 2.0
+			enemy.burn_time = maxf(3.0, float(traits.get("burn_duration", 0)))
+		if bonus("slow") + bonus("freeze") + float(traits.get("slow", 0)) > 0:
+			var applied_slow = (bonus("slow") + bonus("freeze") + float(traits.get("slow", 0))) * (1 - enemy.status_resist)
+			enemy.slow = minf(0.9, maxf(enemy.slow, applied_slow))
+			enemy.slow_time = maxf(2.0, float(traits.get("slow_duration", 0)))
 		if bonus("poison") > 0:
 			enemy.poison = bonus("poison") * (1 - enemy.status_resist)
 			enemy.poison_time = 4.0
-		if enemy.burn > 0: enemy.burn *= 1 - enemy.status_resist
-		var leech = bonus("lifesteal") + (0.04 if "vampiric" in modifiers else 0)
+		var leech = bonus("lifesteal") + float(traits.get("lifesteal", 0))
 		if leech > 0: health = minf(max_health, health + actual * minf(0.3, leech))
 		if bonus("chain") > 0 and rng.randf() < bonus("chain"):
 			for other_id in enemies.keys():
@@ -674,7 +710,7 @@ func damage_enemy(uid: int, amount: float, source: String, origin: Vector3 = Vec
 	var reward = int((6 + enemy.cost * 0.4) * (1 + bonus("production") * (0.2 if source in ["tower", "tower_dot"] else 0.0)))
 	scrap += reward
 	stats.earned += reward
-	xp += int(enemy.cost)
+	add_xp(int(enemy.cost))
 	visuals.burst(enemy.node.position + Vector3.UP, Color(enemy.color), 8)
 	if rng.randf() < 0.18 + bonus("loot") or enemy.type == "boss":
 		drop_loot(enemy.node.position, enemy.type == "boss")
@@ -1035,33 +1071,66 @@ func finish_wave() -> void:
 	if not messages.is_empty():
 		visuals.rebuild()
 	ui.notify("Wave %d cleared · +%d scrap%s" % [wave, reward, "\n" + "\n".join(messages) if not messages.is_empty() else ""])
-	var gained_levels = 0
-	while xp >= next_xp:
-		xp -= next_xp
-		level += 1
-		gained_levels += 1
-		next_xp = int(next_xp * 1.35 + 10)
+	add_xp(0)
 	state = "preparation"
 	reward_pending = true
-	upgrade_picks = maxi(1, gained_levels)
+	upgrade_picks = maxi(1, pending_levels)
+	pending_levels = 0
 	roll_upgrades()
 	ui.show_upgrades()
 	if eligible:
 		save_run()
 
+func add_xp(amount: int) -> void:
+	xp += maxi(0, amount)
+	var gained = 0
+	while xp >= next_xp:
+		xp -= next_xp
+		level += 1
+		gained += 1
+		next_xp = mini(250000, int(next_xp * 1.24 + 8))
+	pending_levels += gained
+	if gained > 0: ui.notify("Level %d · %d upgrade choice%s at wave clear" % [level, pending_levels, "s" if pending_levels != 1 else ""])
+
+func upgrade_effect_available(effect: String) -> bool:
+	if bonus(effect) > 0: return true
+	for item in weapons:
+		if item.id == "": continue
+		var traits = weapon_traits(item)
+		if effect == "burn" and traits.get("burn_dps", 0) > 0: return true
+		if effect in ["slow", "freeze"] and traits.get("slow", 0) > 0: return true
+	for tower in world.construction.values():
+		if effect in ["slow", "freeze"] and tower.slow > 0: return true
+		if effect == "burn" and tower.id == "flame": return true
+	return false
+
 func roll_upgrades() -> void:
-	upgrades = []
+	var pool: Array = []
 	for upgrade in catalog.upgrades:
 		if upgrade.effect == "medkit_reward" and consumables.medkit >= 99: continue
 		if upgrade.effect == "reserve_reward" and not weapons.any(func(item): return item.id != "" and catalog.weapons[item.id].magazine > 0 and item.reserve < 9999): continue
 		var limit = minf(float(upgrade.get("cap", 1e12)), float(Rules.CAPS.get(upgrade.effect, 1e12)))
-		if bonus(upgrade.effect) < limit: upgrades.append(upgrade.duplicate(true))
-	for i in range(upgrades.size() - 1, 0, -1):
-		var j = rng.randi_range(0, i)
-		var temp = upgrades[i]
-		upgrades[i] = upgrades[j]
-		upgrades[j] = temp
-	upgrades = upgrades.slice(0, 3)
+		if bonus(upgrade.effect) >= limit: continue
+		var requirements: Array = upgrade.get("requires_effects", [])
+		if not requirements.is_empty() and not requirements.any(func(effect): return upgrade_effect_available(effect)): continue
+		pool.append(upgrade.duplicate(true))
+	upgrades = []
+	for slot in mini(3, pool.size()):
+		var candidates: Array = []
+		for index in pool.size():
+			if slot > 0 or not str(pool[index].effect).ends_with("_reward"): candidates.append(index)
+		if candidates.is_empty():
+			for index in pool.size(): candidates.append(index)
+		var weights: Dictionary = catalog.get("upgrade_rarity_weights", {"Common": 60, "Uncommon": 28, "Rare": 12})
+		var total = 0.0
+		for index in candidates: total += float(weights.get(pool[index].get("rarity", "Common"), 12))
+		var roll = rng.randf() * total
+		for index in candidates:
+			roll -= float(weights.get(pool[index].get("rarity", "Common"), 12))
+			if roll <= 0:
+				upgrades.append(pool[index])
+				pool.remove_at(index)
+				break
 
 func choose_upgrade(index: int) -> void:
 	if not reward_pending or index < 0 or index >= upgrades.size():
@@ -1255,7 +1324,9 @@ func pickup(index: int) -> void:
 
 func item_name(item: Dictionary) -> String:
 	if item.id == "": return "Unarmed"
-	return catalog.weapons[item.id].name if catalog.weapons.has(item.id) else str(item.id).replace("_", " ").capitalize()
+	for group in ["weapons", "attachments", "equipment"]:
+		if catalog.get(group, {}).has(item.id): return catalog[group][item.id].name
+	return str(item.id).replace("_", " ").capitalize()
 
 func inventory_action(index: int, action: String) -> void:
 	if not playing() or state == "paused" or index < 0 or index >= backpack.size():
@@ -1276,8 +1347,8 @@ func inventory_action(index: int, action: String) -> void:
 			if weapons[active_weapon].id == "":
 				ui.notify("Equip a weapon before attaching a module.")
 				return
-			if weapons[active_weapon].id == "blade" and item.id != "elemental":
-				ui.notify("The Shock Blade accepts only an elemental module.")
+			if not attachment_compatible(item.id, weapons[active_weapon]):
+				ui.notify("This module is incompatible with the active weapon.")
 				return
 			var equipped = modules(weapons[active_weapon])
 			var old = equipped.get(item.id, "")
@@ -1820,6 +1891,7 @@ func save_run() -> bool:
 		return false
 	var record = {"version": 2, "id": run_id, "mode": mode, "world": world.map, "construction": world.construction, "applied": world.applied, "wave": wave, "completed": completed, "scrap": scrap, "health": health, "max_health": max_health, "shield": shield, "core": core_health, "max_core": max_core, "stats": stats, "bonuses": bonuses, "weapons": weapons, "backpack": backpack, "consumables": consumables, "active": active_weapon, "elapsed": elapsed, "position": [player.position.x, player.position.y, player.position.z], "yaw": player.rotation.y, "pitch": player.pitch, "rng": str(rng.state), "level": level, "xp": xp, "next_xp": next_xp, "reward_pending": reward_pending, "upgrades": upgrades, "capacity": capacity}
 	record.upgrade_picks = upgrade_picks
+	record.pending_levels = pending_levels
 	record.phase = phase
 	if phase == "wave": record.combat = CombatSave.snapshot(self)
 	record.drops = []
@@ -1902,6 +1974,7 @@ func load_run() -> void:
 	level = int(r.level)
 	xp = int(r.xp)
 	next_xp = int(r.next_xp)
+	pending_levels = int(r.get("pending_levels", 0))
 	reward_pending = r.reward_pending
 	upgrades = r.upgrades
 	upgrade_picks = int(r.get("upgrade_picks", 1 if reward_pending else 0))
@@ -1988,6 +2061,8 @@ func valid_run(value: Variant) -> bool:
 			if not catalog.weapons.has(key) or not profile.numeric(value.stats.weapon_usage[key], 0, 1e15): return false
 	if not value.get("reward_pending") is bool: return false
 	var pending_picks = value.get("upgrade_picks", 1 if value.reward_pending else 0)
+	var saved_levels = value.get("pending_levels", 0)
+	if not profile.numeric(saved_levels, 0, 1e6) or saved_levels != int(saved_levels): return false
 	if not profile.numeric(pending_picks, 0, 1000000) or pending_picks != int(pending_picks): return false
 	if value.reward_pending != (pending_picks > 0): return false
 	if not value.get("timers", []) is Array or value.get("timers", [0, 0, 0, 0]).size() != 4: return false
@@ -2072,7 +2147,12 @@ func render_times() -> Dictionary:
 
 func benchmark_setup() -> void:
 	RenderingServer.viewport_set_measure_render_time(get_viewport().get_viewport_rid(), true)
-	for p in [Vector2i(11, 3), Vector2i(13, 3), Vector2i(11, 5), Vector2i(13, 5), Vector2i(11, 8), Vector2i(13, 8), Vector2i(10, 11), Vector2i(14, 11)]:
+	var cells: Array = []
+	for key in world.map.build:
+		var p = world.point(key)
+		if placement(p) == "" and p != world.cell(player.position) and p != Vector2i(12, 10): cells.append(p)
+	cells.sort_custom(func(a, b): return a.distance_squared_to(world.marker("objective")) < b.distance_squared_to(world.marker("objective")))
+	for p in cells.slice(0, 8):
 		var result = build(p, "sentry")
 		print("BENCHMARK build ", p, " ", "OK" if result == "" else result)
 	print("BENCHMARK fixed tile rejection: ", build(Vector2i(12, 12), "wall"))
@@ -2080,9 +2160,8 @@ func benchmark_setup() -> void:
 	player.rotation.y = 0
 	if benchmark_content:
 		world.construction.clear()
-		var cells = [Vector2i(11, 3), Vector2i(13, 3), Vector2i(11, 5), Vector2i(13, 5), Vector2i(11, 8), Vector2i(13, 8), Vector2i(10, 11), Vector2i(14, 11), Vector2i(10, 13), Vector2i(14, 13), Vector2i(10, 15), Vector2i(14, 15), Vector2i(9, 10), Vector2i(11, 10), Vector2i(13, 10), Vector2i(9, 14)]
 		var ids = catalog.structures.keys()
-		for i in ids.size(): print("BENCHMARK content ", ids[i], " ", build(cells[i], ids[i]))
+		for i in mini(ids.size(), cells.size()): print("BENCHMARK content ", ids[i], " ", build(cells[i], ids[i]))
 		wave = 9
 		completed = 9
 		world.evolve(9)

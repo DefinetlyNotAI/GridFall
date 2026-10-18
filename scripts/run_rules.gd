@@ -10,7 +10,7 @@ const MODES = {
 	"daily": {"name": "Daily Defense", "description": "A shared UTC daily seed and world. Research applies; no online leaderboard.", "difficulty": 1.1},
 	"sandbox": {"name": "Sandbox", "description": "Unlimited scrap, all equipment; no permanent rewards.", "difficulty": 0.0}
 }
-const CAPS = {"damage": 3.0, "fire_rate": 2.0, "reload": 2.0, "range": 1.5, "critical": 0.45, "armor": 0.65, "health": 500.0, "regen": 8.0, "shield": 300.0, "core_health": 3000.0, "scrap": 2000.0, "capacity": 80.0, "discount": 0.5, "loot": 0.3, "tower_damage": 3.0, "tower_rate": 2.0, "tower_range": 1.5, "repair_efficiency": 0.65, "lifesteal": 0.08, "burn": 20.0, "freeze": 0.5, "poison": 15.0, "chain": 0.5, "explosive": 0.5, "projectiles": 2.0, "core_armor": 0.65, "core_shield": 300.0, "ability_power": 3.0, "ability_rate": 0.65, "supply": 0.6, "production": 2.0, "penetration": 0.6, "status_resist": 0.75, "movement": 0.35}
+const CAPS = {"damage": 3.0, "fire_rate": 2.0, "reload": 2.0, "range": 1.5, "critical": 0.45, "armor": 0.65, "health": 500.0, "regen": 8.0, "shield": 300.0, "core_health": 3000.0, "scrap": 2000.0, "capacity": 80.0, "discount": 0.5, "loot": 0.3, "tower_damage": 3.0, "tower_rate": 2.0, "tower_range": 1.5, "repair_efficiency": 0.65, "lifesteal": 0.08, "burn": 20.0, "freeze": 0.5, "slow": 0.9, "poison": 15.0, "chain": 0.5, "explosive": 0.5, "shatter": 0.6, "projectiles": 2.0, "core_armor": 0.65, "core_shield": 300.0, "ability_power": 3.0, "ability_rate": 0.65, "supply": 0.6, "production": 2.0, "penetration": 0.6, "status_resist": 0.75, "movement": 0.35}
 
 const CHALLENGES = {
 	"frail": {"name": "Starting player health reduced to 65%", "weight": 0.15},
