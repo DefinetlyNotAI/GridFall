@@ -20,6 +20,9 @@ static func snapshot(game) -> Dictionary:
 	for enemy in game.enemies.values():
 		var item = {"type": enemy.type, "uid": enemy.uid, "position": vector(enemy.node.position), "velocity": vector(enemy.node.velocity), "yaw": enemy.node.rotation.y, "steering": vector(enemy.steering), "elite": enemy.elite, "ai": enemy.ai, "burn_source": enemy.burn_source}
 		for field in ENEMY_NUMBERS: item[field] = enemy[field]
+		item.simulation_lag = maxf(0, game.elapsed - float(enemy.get("simulated_at", game.elapsed)))
+		for effect in ["burn", "poison", "slow"]:
+			item[effect + "_lag"] = maxf(0, game.elapsed - float(enemy.get(effect + "_at", enemy.get("simulated_at", game.elapsed))))
 		result.enemies.append(item)
 	for projectile in game.projectiles:
 		var effects = projectile.effects.duplicate(true)
@@ -31,7 +34,7 @@ static func valid(game, value: Variant) -> bool:
 	if not value is Dictionary: return false
 	for field in ["enemies", "projectiles", "queue"]:
 		if not value.get(field) is Array: return false
-	if value.enemies.size() > 250 or value.projectiles.size() > 128 or value.queue.size() > 601: return false
+	if value.projectiles.size() > 128 or value.queue.size() > 601: return false
 	for field in ["next_uid", "kill_streak"]:
 		if not game.profile.numeric(value.get(field), 0, 1e12) or value[field] != int(value[field]): return false
 	for field in ["spawn_timer", "hazard_timer", "kill_timer"]:
@@ -60,6 +63,9 @@ static func valid(game, value: Variant) -> bool:
 		for field in ENEMY_NUMBERS:
 			if not game.profile.numeric(enemy.get(field), -1e12 if field.ends_with("timer") or field.ends_with("time") or field == "cooldown" else 0, 1e12): return false
 		if enemy.health <= 0 or enemy.health > enemy.max_health or enemy.speed > 100 or enemy.armor > 0.8 or enemy.slow > 0.9 or enemy.blast_resist > 1 or enemy.status_resist > 1: return false
+		if enemy.has("simulation_lag") and not game.profile.numeric(enemy.simulation_lag, 0, 1e12): return false
+		for effect in ["burn", "poison", "slow"]:
+			if enemy.has(effect + "_lag") and not game.profile.numeric(enemy[effect + "_lag"], 0, 1e12): return false
 	for projectile in value.projectiles:
 		if not projectile is Dictionary: return false
 		for field in ["position", "velocity"]:
@@ -95,7 +101,13 @@ static func restore(game, value: Dictionary) -> void:
 		enemy.node.position = unpack(item.position)
 		enemy.node.velocity = unpack(item.velocity)
 		enemy.node.rotation.y = item.yaw
+		enemy.simulated_at = game.elapsed - float(item.get("simulation_lag", 0))
+		for effect in ["burn", "poison", "slow"]:
+			enemy[effect + "_at"] = game.elapsed - float(item.get(effect + "_lag", item.get("simulation_lag", 0)))
 		game.enemies[enemy.uid] = enemy
+		game.enemy_index.add(enemy.uid, enemy.node.position, enemy.type)
+		if enemy.health < enemy.max_health: game.wounded_index.add(enemy.uid, enemy.node.position, enemy.type)
+		game.visuals.enemy_renderer.sync(enemy.uid)
 	for item in value.projectiles:
 		var effects = item.effects.duplicate(true)
 		if effects.has("origin"): effects.origin = unpack(effects.origin)

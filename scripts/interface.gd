@@ -1032,7 +1032,7 @@ func show_settings() -> void:
 	var settings_col = scroll_column(content, 18)
 	section(settings_col, settings_section.to_upper())
 	var settings = game.profile.data.settings
-	for entry in [["fov", "Field of view", 60, 110, 1, "Display"], ["sensitivity", "Mouse sensitivity", 0.0005, 0.006, 0.0001, "Controls"], ["volume", "Master volume", 0, 1, 0.05, "Audio"], ["music", "Music volume", 0, 1, 0.05, "Audio"], ["fps", "Frame limit", 30, 240, 10, "Display"], ["enemy_cap", "Active enemy cap", 25, 250, 25, "Gameplay"], ["hud_scale", "HUD scale", 0.75, 1.5, 0.05, "Display"]]:
+	for entry in [["fov", "Field of view", 60, 110, 1, "Display"], ["sensitivity", "Mouse sensitivity", 0.0005, 0.006, 0.0001, "Controls"], ["volume", "Master volume", 0, 1, 0.05, "Audio"], ["music", "Music volume", 0, 1, 0.05, "Audio"], ["fps", "Frame limit", 30, 240, 10, "Display"], ["hud_scale", "HUD scale", 0.75, 1.5, 0.05, "Display"]]:
 		if entry[5] != settings_section: continue
 		var line = row(settings_col)
 		var name_label = label(line, entry[1], 18)
@@ -1056,7 +1056,7 @@ func show_settings() -> void:
 	if settings_section == "Audio":
 		label(settings_col, "Audio is always muted while the game is in the background.", 16, Color("92abb8"))
 	if settings_section == "Gameplay":
-		label(settings_col, "The active cap limits simulated actors; remaining enemies stay queued. Adaptive factions apply to new runs. Slide stamina is separate from the three dash/slam bars.", 16, Color("92abb8"))
+		label(settings_col, "Enemy population has no gameplay cap. Adaptive factions apply to new runs. Slide stamina is separate from the three dash/slam bars.", 16, Color("92abb8"))
 	if settings_section == "Display":
 		label(settings_col, "Lighting quality", 17)
 		var quality = OptionButton.new()
@@ -1147,7 +1147,8 @@ func _process(delta: float) -> void:
 		hud_refresh = 0.1
 		boss_label.visible = false
 		hud.boss_ratio = -1
-		for enemy in game.enemies.values():
+		for uid in game.enemy_index.of_type("boss"):
+			var enemy = game.enemies[uid]
 			if enemy.type == "boss":
 				boss_label.visible = true
 				boss_label.text = "SIEGE TITAN · %d / %d · PHASE %d" % [enemy.health, enemy.max_health, 3 if enemy.health < enemy.max_health * 0.25 else (2 if enemy.health < enemy.max_health * 0.5 else 1)]
@@ -1199,5 +1200,5 @@ func _process(delta: float) -> void:
 			if item.kind == "tower": tower_count += 1
 		var memory = OS.get_static_memory_usage()
 		var rendering = game.render_times()
-		debug_label.text = "%d FPS / %.2f ms avg frame / %.2f ms sim\nEnemies %d/%d · Projectiles %d\nTowers %d · Structures %d · Queue %d\nNavigation %.3f ms · Memory %s\nDraw calls %d" % [fps, 1000.0 / maxf(1, fps), game.simulation_ms, game.enemies.size(), game.active_cap, game.projectiles.size(), tower_count, game.world.construction.size(), game.queued_enemies(), game.world.nav_ms, "%.1f MB" % (memory / 1048576.0) if memory > 0 else "unavailable", RenderingServer.get_rendering_info(RenderingServer.RENDERING_INFO_TOTAL_DRAW_CALLS_IN_FRAME)]
+		debug_label.text = "%d FPS / %.2f ms avg frame / %.2f ms sim\nLive enemies %d · Projectiles %d\nTowers %d · Structures %d · Queue %d\nNavigation %.3f ms · Memory %s\nDraw calls %d" % [fps, 1000.0 / maxf(1, fps), game.simulation_ms, game.enemies.size(), game.projectiles.size(), tower_count, game.world.construction.size(), game.queued_enemies(), game.world.nav_ms, "%.1f MB" % (memory / 1048576.0) if memory > 0 else "unavailable", RenderingServer.get_rendering_info(RenderingServer.RENDERING_INFO_TOTAL_DRAW_CALLS_IN_FRAME)]
 		debug_label.text += "\nRender CPU %.2f ms · GPU %s" % [rendering.cpu_ms, "%.2f ms" % rendering.gpu_ms if rendering.gpu_ms > 0 else "unavailable"]

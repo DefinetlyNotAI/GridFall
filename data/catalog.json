@@ -3033,7 +3033,7 @@
     {
       "id": "rangefinder",
       "name": "Rangefinder",
-      "description": "Each rank adds 6% weapon range.",
+      "description": "Each rank adds 6% weapon and defense range.",
       "effect": "range",
       "value": 0.06,
       "rarity": "Common",

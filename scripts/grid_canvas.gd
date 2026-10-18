@@ -63,9 +63,16 @@ func _draw() -> void:
 		if cell_size > 16:
 			draw_string(ThemeDB.fallback_font, rect.position + Vector2(cell_size * 0.25, cell_size * 0.75), str(item.id).left(1).to_upper(), HORIZONTAL_ALIGNMENT_LEFT, -1, int(cell_size * 0.6), Color("101c25"))
 	if not editor:
-		for enemy in game.enemies.values():
-			var pos = offset + Vector2(enemy.node.position.x, enemy.node.position.z) / 3 * cell_size
-			draw_circle(pos, maxf(1.5, cell_size * 0.13), Color("ff806a"))
+		if game.enemies.size() > 600:
+			for bucket in game.enemy_index.buckets:
+				var pos = offset + (Vector2(bucket) + Vector2.ONE * 0.5) * game.enemy_index.CELL / 3 * cell_size
+				var count = game.enemy_index.buckets[bucket].size()
+				draw_circle(pos, clampf(1.5 + log(1.0 + count) * 0.6, 2, 6), Color("ff806a"))
+		else:
+			for uid in game.enemy_index.ids:
+				var enemy = game.enemies[uid]
+				var pos = offset + Vector2(enemy.node.position.x, enemy.node.position.z) / 3 * cell_size
+				draw_circle(pos, maxf(1.5, cell_size * 0.13), Color("ff806a"))
 		if is_instance_valid(game.player):
 			var pos = offset + Vector2(game.player.position.x, game.player.position.z) / 3 * cell_size
 			draw_circle(pos, maxf(2.0, cell_size * 0.18), Color("ffffff"))

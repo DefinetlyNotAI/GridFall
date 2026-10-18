@@ -38,7 +38,7 @@ var data: Dictionary = {}
 var error = ""
 
 func defaults() -> Dictionary:
-	return {"version": 1, "tp": 0, "research": {}, "awarded": [], "runs": 0, "kills": 0, "best": 0, "bosses": 0, "high_score": 0, "survival_time": 0, "achievements": {}, "ascensions": 0, "cores": 0, "ascension_perks": {}, "secondary_loadout": "pistol", "mutation": "vitality", "settings": {"sensitivity": 0.002, "fov": 82.0, "volume": 0.7, "music": 0.25, "muted": false, "fullscreen": false, "resolution": 0, "vsync": true, "fps": 120, "quality": 1, "enemy_cap": 100, "hud_scale": 1.0, "crosshair": true, "shake": true, "adaptive": true, "weather": true, "camera_motion": false, "movement_effects": true, "stamina": false, "visual_mode": 0, "advanced_lighting": false, "keys": {}}, "loadout": "rifle"}
+	return {"version": 1, "tp": 0, "research": {}, "awarded": [], "runs": 0, "kills": 0, "best": 0, "bosses": 0, "high_score": 0, "survival_time": 0, "achievements": {}, "ascensions": 0, "cores": 0, "ascension_perks": {}, "secondary_loadout": "pistol", "mutation": "vitality", "settings": {"sensitivity": 0.002, "fov": 82.0, "volume": 0.7, "music": 0.25, "muted": false, "fullscreen": false, "resolution": 0, "vsync": true, "fps": 120, "quality": 1, "hud_scale": 1.0, "crosshair": true, "shake": true, "adaptive": true, "weather": true, "camera_motion": false, "movement_effects": true, "stamina": false, "visual_mode": 0, "advanced_lighting": false, "keys": {}}, "loadout": "rifle"}
 
 func valid(value: Variant) -> bool:
 	if not value is Dictionary or value.get("version") != 1:
@@ -80,7 +80,7 @@ func valid(value: Variant) -> bool:
 			if not key is String or not numeric(settings.keys[key], 1, 2147483647): return false
 	for key in ["muted", "fullscreen", "vsync", "crosshair", "shake", "adaptive", "weather", "camera_motion", "movement_effects", "stamina", "advanced_lighting", "respec_enabled"]:
 		if settings.has(key) and not settings[key] is bool: return false
-	var ranges = {"sensitivity": [0.0001, 0.02], "fov": [50, 120], "volume": [0, 1], "music": [0, 1], "fps": [30, 360], "quality": [0, 1], "resolution": [0, 2], "enemy_cap": [25, 250], "hud_scale": [0.75, 1.5], "visual_mode": [0, 2]}
+	var ranges = {"sensitivity": [0.0001, 0.02], "fov": [50, 120], "volume": [0, 1], "music": [0, 1], "fps": [30, 360], "quality": [0, 1], "resolution": [0, 2], "hud_scale": [0.75, 1.5], "visual_mode": [0, 2]}
 	for key in ranges:
 		if settings.has(key) and not numeric(settings[key], ranges[key][0], ranges[key][1]): return false
 	return true
@@ -122,6 +122,7 @@ func load_profile() -> void:
 			var settings = defaults().settings
 			settings.merge(data.settings, true)
 			data.settings = settings
+			data.settings.erase("enemy_cap")
 			if not data.settings.has("respec_enabled"): data.settings.respec_enabled = true
 			if path.ends_with(".bak"):
 				error = "Recovered profile from backup."

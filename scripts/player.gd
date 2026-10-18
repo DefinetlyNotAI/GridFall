@@ -208,7 +208,8 @@ func slam_impact(fall_speed: float) -> void:
 	game.audio.cue("slam", global_position, 0.8)
 	if game.state != "wave": return
 	var damage = clampf(-fall_speed, 20, 60)
-	for uid in game.enemies.keys():
+	for uid in game.enemy_index.nearby(position, 5):
+		if not game.enemies.has(uid): continue
 		if game.enemies[uid].node.position.distance_squared_to(position) <= 25:
 			game.damage_enemy(uid, damage, "ability")
 

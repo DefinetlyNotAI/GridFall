@@ -8,6 +8,11 @@ const Interface = preload("res://scripts/interface.gd")
 const Sound = preload("res://scripts/audio.gd")
 const Rules = preload("res://scripts/run_rules.gd")
 const CombatSave = preload("res://scripts/combat_save.gd")
+const EnemyIndex = preload("res://scripts/enemy_index.gd")
+var enemy_index = EnemyIndex.new()
+var wounded_index = EnemyIndex.new()
+var enemy_cursor = 0
+var enemy_batch = 512
 const TARGET_MODES = ["Nearest", "Strongest", "Weakest", "First", "Last", "Lowest health", "Highest threat"]
 var catalog: Dictionary
 var profile = Profile.new()
@@ -74,7 +79,7 @@ var kill_timer = 0.0
 var simulation_ms = 0.0
 var simulation_phases: Dictionary = {}
 var hazard_timer = 0.0
-var active_cap = 100
+var benchmark_population = 1000
 var autoplay = false
 var benchmark_time = 0.0
 var benchmark_stage = 0
@@ -135,6 +140,9 @@ func _ready() -> void:
 			benchmark_stress = true
 		if argument.begins_with("--benchmark-duration="):
 			benchmark_duration = clampf(float(argument.trim_prefix("--benchmark-duration=")), 10, 3600)
+		if argument.begins_with("--benchmark-population="):
+			benchmark_population = maxi(1, int(argument.trim_prefix("--benchmark-population=")))
+			benchmark_stress = true
 	if "--benchmark" in OS.get_cmdline_user_args() or benchmark_content or benchmark_stress:
 		autoplay = true
 		start_run("sandbox")
@@ -174,7 +182,6 @@ func apply_settings() -> void:
 		DisplayServer.window_set_size([Vector2i(1280, 800), Vector2i(1440, 900), Vector2i(1920, 1080)][int(settings.resolution)])
 	DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_ENABLED if settings.vsync else DisplayServer.VSYNC_DISABLED)
 	Engine.max_fps = int(settings.fps)
-	active_cap = int(settings.enemy_cap)
 	visuals.sun.shadow_enabled = int(settings.quality) > 0
 	visuals.apply_render_settings()
 	audio.apply_volume()
@@ -334,6 +341,11 @@ func start_run(run_mode: String = "endless", custom: Dictionary = {}, restoring:
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE if autoplay else Input.MOUSE_MODE_CAPTURED
 
 func clear_run() -> void:
+	enemy_index.clear()
+	wounded_index.clear()
+	enemy_cursor = 0
+	enemy_batch = 512
+	if is_instance_valid(visuals) and is_instance_valid(visuals.enemy_renderer): visuals.enemy_renderer.clear()
 	for enemy in enemies.values():
 		if is_instance_valid(enemy.node):
 			enemy.node.queue_free()
@@ -542,7 +554,7 @@ func punch() -> void:
 	var forward = -player.camera.global_basis.z
 	var nearest = -1
 	var distance = 3.4
-	for uid in enemies:
+	for uid in enemy_index.nearby(from, distance):
 		var target = enemies[uid].node.position + Vector3.UP
 		var offset = target - from
 		if offset.length() < distance and offset.normalized().dot(forward) > 0.45 and sight(from, target):
@@ -552,6 +564,7 @@ func punch() -> void:
 		var target = enemies[nearest]
 		target.slow = maxf(target.slow, 0.65)
 		target.slow_time = maxf(target.slow_time, 0.25)
+		target.slow_at = elapsed
 		visuals.beam(from, target.node.position + Vector3.UP, Color("ffd28a"))
 		damage_enemy(nearest, 24 * (1 + bonus("damage")), "ability", player.position)
 		ui.hit_flash = 0.12
@@ -626,7 +639,8 @@ func explosion(pos: Vector3, damage: float, radius: float, source: String, effec
 		var blast_effects = effects.duplicate()
 		blast_effects.blast = true
 		if source == "weapon" and not blast_effects.has("origin"): blast_effects.origin = player.camera.global_position
-		for uid in enemies.keys():
+		for uid in enemy_index.nearby(pos, radius):
+			if not enemies.has(uid): continue
 			var enemy = enemies[uid]
 			var center = enemy.node.position + Vector3.UP * (1.8 if enemy.type == "boss" else 1.0)
 			var distance = center.distance_to(pos)
@@ -641,9 +655,25 @@ func explosion(pos: Vector3, damage: float, radius: float, source: String, effec
 			if world.position(world.point(key)).distance_to(pos) < radius:
 				damage_structure(key, damage)
 
+func advance_enemy_dots(uid: int) -> bool:
+	if not enemies.has(uid): return false
+	var enemy = enemies[uid]
+	for effect in ["burn", "poison"]:
+		if enemy[effect] <= 0: continue
+		var effect_delta = maxf(0, elapsed - float(enemy.get(effect + "_at", enemy.get("simulated_at", elapsed))))
+		var active_delta = minf(effect_delta, maxf(0, enemy[effect + "_time"]))
+		enemy[effect + "_time"] -= effect_delta
+		enemy[effect + "_at"] = elapsed
+		var source = "poison" if effect == "poison" else ("tower_dot" if enemy.burn_source == "tower" else "dot")
+		damage_enemy(uid, enemy[effect] * active_delta, source)
+		if enemy[effect + "_time"] <= 0: enemy[effect] = 0.0
+		if not enemies.has(uid): return false
+	return true
+
 func damage_enemy(uid: int, amount: float, source: String, origin: Vector3 = Vector3.ZERO, effects: Dictionary = {}) -> void:
 	if not enemies.has(uid) or state != "wave":
 		return
+	if source == "weapon" and not advance_enemy_dots(uid): return
 	var enemy = enemies[uid]
 	if enemy.health <= 0:
 		return
@@ -656,6 +686,7 @@ func damage_enemy(uid: int, amount: float, source: String, origin: Vector3 = Vec
 			armor += 0.45
 	var actual = minf(enemy.health, amount * (1 - minf(0.8, armor)) * (1 - float(enemy.get("blast_resist", 0)) if effects.get("blast", false) else 1.0))
 	enemy.health -= actual
+	if enemy.health > 0 and enemy.health < enemy.max_health and not wounded_index.entries.has(uid): wounded_index.add(uid, enemy.node.position, enemy.type)
 	stats.damage += actual
 	if effects.get("blast", false): stats.explosive_damage = stats.get("explosive_damage", 0.0) + actual
 	if source in ["dot", "tower_dot", "poison"]: stats.elemental_damage = stats.get("elemental_damage", 0.0) + actual
@@ -679,17 +710,20 @@ func damage_enemy(uid: int, amount: float, source: String, origin: Vector3 = Vec
 				enemy.burn = burn
 				enemy.burn_source = "weapon"
 			enemy.burn_time = maxf(3.0, float(traits.get("burn_duration", 0)))
+			enemy.burn_at = elapsed
 		if bonus("slow") + bonus("freeze") + float(traits.get("slow", 0)) > 0:
 			var applied_slow = (bonus("slow") + bonus("freeze") + float(traits.get("slow", 0))) * (1 - enemy.status_resist)
 			enemy.slow = minf(0.9, maxf(enemy.slow, applied_slow))
 			enemy.slow_time = maxf(2.0, float(traits.get("slow_duration", 0)))
+			enemy.slow_at = elapsed
 		if bonus("poison") > 0:
 			enemy.poison = bonus("poison") * (1 - enemy.status_resist)
 			enemy.poison_time = 4.0
+			enemy.poison_at = elapsed
 		var leech = bonus("lifesteal") + float(traits.get("lifesteal", 0))
 		if leech > 0: health = minf(max_health, health + actual * minf(0.3, leech))
 		if bonus("chain") > 0 and rng.randf() < bonus("chain"):
-			for other_id in enemies.keys():
+			for other_id in enemy_index.nearby(enemy.node.position, 8):
 				if other_id != uid and enemies[other_id].node.position.distance_squared_to(enemy.node.position) < 64 and sight(enemy.node.position + Vector3.UP, enemies[other_id].node.position + Vector3.UP):
 					visuals.beam(enemy.node.position + Vector3.UP, enemies[other_id].node.position + Vector3.UP, Color("7bd7f2"))
 					damage_enemy(other_id, actual * 0.4 * (1.5 if enemies[other_id].slow > 0 else 1.0), "proc", enemy.node.position)
@@ -716,6 +750,8 @@ func damage_enemy(uid: int, amount: float, source: String, origin: Vector3 = Vec
 		drop_loot(enemy.node.position, enemy.type == "boss")
 	audio.cue("kill", enemy.node.position, 0.35)
 	enemy.node.queue_free()
+	enemy_index.remove(uid)
+	wounded_index.remove(uid)
 	enemies.erase(uid)
 
 func damage_player(amount: float, status_damage: bool = false) -> void:
@@ -986,7 +1022,7 @@ func upcoming_event(number: int) -> String:
 	return ""
 
 func spawn_enemy(id: String, spawn_pos: Vector3 = Vector3.ZERO) -> void:
-	if not catalog.enemies.has(id) or enemies.size() >= active_cap:
+	if not catalog.enemies.has(id):
 		return
 	var definition = catalog.enemies[id]
 	var enemy = definition.duplicate(true)
@@ -1026,6 +1062,8 @@ func spawn_enemy(id: String, spawn_pos: Vector3 = Vector3.ZERO) -> void:
 	enemy.heal_timer = 0.5 + float(next_uid % 30) / 30.0
 	var node = visuals.enemy(enemy)
 	enemy.node = node
+	enemy.simulated_at = elapsed
+	enemy.simulation_ticks = 0
 	if spawn_pos == Vector3.ZERO:
 		var points = world.spawns(completed)
 		if points.is_empty():
@@ -1033,6 +1071,8 @@ func spawn_enemy(id: String, spawn_pos: Vector3 = Vector3.ZERO) -> void:
 			return
 		spawn_pos = world.position(points[rng.randi_range(0, points.size() - 1)])
 	node.position = spawn_pos + Vector3(rng.randf_range(-0.5, 0.5), 0.1, rng.randf_range(-0.5, 0.5))
+	enemy_index.add(enemy.uid, node.position, enemy.type)
+	visuals.enemy_renderer.sync(enemy.uid)
 	enemies[enemy.uid] = enemy
 
 func finish_wave() -> void:
@@ -1211,10 +1251,12 @@ func ability() -> void:
 		return
 	ability_timer = 18 / (1 + bonus("ability")) * (1 - bonus("ability_rate"))
 	explosion(player.position + Vector3.UP, 55 * (1 + bonus("ability_power")), 8, "ability")
-	for enemy in enemies.values():
+	for uid in enemy_index.nearby(player.position, 8):
+		var enemy = enemies[uid]
 		if enemy.node.position.distance_to(player.position) < 8:
 			enemy.slow = 0.85
 			enemy.slow_time = 3
+			enemy.slow_at = elapsed
 	ui.notify("Pulse discharged")
 
 func restoration() -> void:
@@ -1514,10 +1556,10 @@ func _physics_process(delta: float) -> void:
 		for item in world.construction.values(): item.cooldown = maxf(0, item.cooldown - delta)
 		return
 	spawn_timer -= delta
-	if spawn_timer <= 0 and not spawn_queue.is_empty() and enemies.size() < active_cap:
+	if spawn_timer <= 0 and not spawn_queue.is_empty():
 		spawn_enemy(spawn_queue.pop_front())
 		spawn_timer = maxf(0.12, world.rule("spawn_interval") / (1 + wave * 0.08))
-	elif spawn_timer <= 0 and spawn_queue.is_empty() and not spawn_reserve.is_empty() and enemies.size() < active_cap:
+	elif spawn_timer <= 0 and spawn_queue.is_empty() and not spawn_reserve.is_empty():
 		refill_spawns()
 	var phase_start = Time.get_ticks_usec()
 	if player.parry_timer > 0: parry_projectiles()
@@ -1542,7 +1584,11 @@ func _physics_process(delta: float) -> void:
 func move_enemy(node: CharacterBody3D, delta: float) -> void:
 	var needs_floor_sweep = not world.flat_floor and (not world.complete_floor or world.sloped_cells.has(world.cell_key(world.cell(node.position))))
 	if needs_floor_sweep or not node.is_on_floor() or absf(node.position.y) > 0.01:
+		var scale_delta = delta * Engine.physics_ticks_per_second
+		var original_velocity = node.velocity
+		node.velocity *= scale_delta
 		node.move_and_slide()
+		node.velocity = original_velocity
 		return
 	var motion = Vector3(node.velocity.x, 0, node.velocity.z) * delta
 	if motion.length_squared() <= 0.000001: return
@@ -1551,18 +1597,37 @@ func move_enemy(node: CharacterBody3D, delta: float) -> void:
 		var remainder = collision.get_remainder().slide(collision.get_normal())
 		if remainder.length_squared() > 0.000001: node.move_and_collide(remainder)
 
-func update_enemies(delta: float) -> void:
+func update_enemies(frame_delta: float) -> void:
+	var update_start = Time.get_ticks_usec()
 	var movement_us = 0
 	var crowd_us = 0
+	var maximum_step = 0.0
 	var objective_pos = world.position(world.marker("objective"))
-	var buckets: Dictionary = {}
-	for enemy in enemies.values():
-		var key = Vector2i(floori(enemy.node.position.x / 1.5), floori(enemy.node.position.z / 1.5))
-		if not buckets.has(key): buckets[key] = []
-		buckets[key].append(enemy.uid)
-	for uid in enemies.keys():
+	var work: Array = []
+	var selected: Dictionary = {}
+	var population = enemy_index.ids.size()
+	var count = mini(population, enemy_batch)
+	for uid in enemy_index.nearby(player.position, 18, mini(32, maxi(1, count / 4))) + enemy_index.nearby(objective_pos, 6, mini(16, maxi(1, count / 8))):
+		if not selected.has(uid) and work.size() < count:
+			work.append(uid)
+			selected[uid] = true
+	for i in population:
+		if work.size() >= count: break
+		enemy_cursor = posmod(enemy_cursor, population)
+		var uid = enemy_index.ids[enemy_cursor]
+		enemy_cursor += 1
+		if not selected.has(uid):
+			work.append(uid)
+			selected[uid] = true
+	for uid in work:
 		if not enemies.has(uid) or state != "wave": continue
 		var enemy = enemies[uid]
+		var delta = maxf(frame_delta, elapsed - float(enemy.get("simulated_at", elapsed - frame_delta)))
+		maximum_step = maxf(maximum_step, delta)
+		var was_attacking = enemy.ai == "attack"
+		if not advance_enemy_dots(uid): continue
+		enemy.simulated_at = elapsed
+		enemy.simulation_ticks = int(enemy.get("simulation_ticks", 0)) + 1
 		var node: CharacterBody3D = enemy.node
 		if node.position.y < -10:
 			var portals = world.spawns(completed)
@@ -1573,23 +1638,14 @@ func update_enemies(delta: float) -> void:
 		var pos = node.position
 		enemy.cooldown -= delta
 		if enemy.type == "support": enemy.heal_timer -= delta
-		enemy.slow_time -= delta
+		enemy.slow_time -= maxf(0, elapsed - float(enemy.get("slow_at", elapsed - delta)))
+		enemy.slow_at = elapsed
 		if enemy.slow_time <= 0: enemy.slow = 0.0
-		if enemy.burn > 0:
-			enemy.burn_time -= delta
-			damage_enemy(uid, enemy.burn * delta, "tower_dot" if enemy.burn_source == "tower" else "dot")
-			if enemy.burn_time <= 0: enemy.burn = 0.0
-			if not enemies.has(uid): continue
-		if enemy.poison > 0:
-			enemy.poison_time -= delta
-			damage_enemy(uid, enemy.poison * delta, "poison")
-			if enemy.poison_time <= 0: enemy.poison = 0.0
-			if not enemies.has(uid): continue
 		if enemy.type == "boss" and enemy.health < enemy.max_health * 0.25:
 			enemy.summon_timer -= delta
 			if enemy.summon_timer <= 0:
 				enemy.summon_timer = 10
-				for i in mini(3, active_cap - enemies.size()): spawn_enemy("runner")
+				for i in 3: spawn_enemy("runner")
 				ui.notify("Siege Titan / reinforcement pulse")
 		enemy.think_timer -= delta
 		if enemy.think_timer > 0 and not (enemy.ai == "attack" and enemy.cooldown <= 0):
@@ -1602,6 +1658,9 @@ func update_enemies(delta: float) -> void:
 				move_enemy(node, delta)
 				movement_us += Time.get_ticks_usec() - movement_start
 			node.get_node("Model").position.y = sin(elapsed * enemy.speed * 4 + uid) * 0.035 if enemy.ai == "navigate" else 0
+			enemy_index.move(uid, node.position)
+			wounded_index.move(uid, node.position)
+			visuals.enemy_renderer.sync(uid)
 			continue
 		enemy.think_timer = 0.1
 		var target = objective_pos
@@ -1624,9 +1683,11 @@ func update_enemies(delta: float) -> void:
 		if enemy.type == "support":
 			if enemy.heal_timer <= 0:
 				enemy.heal_timer = 2
-				for ally in enemies.values():
+				for ally_uid in wounded_index.nearby(pos, 8):
+					var ally = enemies[ally_uid]
 					if ally.node.position.distance_squared_to(pos) < 64:
 						ally.health = minf(ally.max_health, ally.health + 8)
+						if ally.health >= ally.max_health: wounded_index.remove(ally_uid)
 		var destination = target
 		var target_distance = pos.distance_to(target)
 		var reach = float(enemy.range) + (1 if target_kind in ["core", "structure"] else 0)
@@ -1666,24 +1727,27 @@ func update_enemies(delta: float) -> void:
 			enemy.steering = Vector3.ZERO
 			node.velocity = Vector3(0, -2, 0)
 			if enemy.cooldown <= 0:
-				enemy.cooldown = maxf(0.3, enemy.interval / minf(1.8, 1 + wave * 0.004))
+				var interval = maxf(0.3, enemy.interval / minf(1.8, 1 + wave * 0.004))
+				var strikes = 1 + (maxi(0, int(floor(-enemy.cooldown / interval))) if was_attacking else 0)
+				enemy.cooldown = enemy.cooldown + interval * strikes if was_attacking else interval
+				var attack_damage = enemy.damage * strikes
 				if enemy.type == "exploder":
 					explosion(pos + Vector3.UP, enemy.damage, 5, "enemy")
 					damage_enemy(uid, 100000, "weapon")
 					continue
 				elif enemy.type == "spitter" or (enemy.type == "boss" and enemy.health < enemy.max_health * 0.5):
-					launch(pos + Vector3.UP * 1.6, (target + Vector3.UP - pos - Vector3.UP * 1.6).normalized() * 15, enemy.damage, 1.8, "enemy", Color("a7dd66"))
+					launch(pos + Vector3.UP * 1.6, (target + Vector3.UP - pos - Vector3.UP * 1.6).normalized() * 15, attack_damage, 1.8, "enemy", Color("a7dd66"))
 				elif target_kind == "player":
 					if player.parry_timer > 0 and (pos - player.position).normalized().dot(-player.camera.global_basis.z) > 0.2:
 						parry_reward(pos + Vector3.UP)
 						damage_enemy(uid, enemy.damage * 1.5, "ability", player.position)
-					else: damage_player(enemy.damage)
-				elif target_kind == "core": damage_core(enemy.damage)
-				elif target_kind == "structure": damage_structure(target_key, enemy.damage)
+					else: damage_player(attack_damage)
+				elif target_kind == "core": damage_core(attack_damage)
+				elif target_kind == "structure": damage_structure(target_key, attack_damage)
 				elif target_kind == "tile":
 					var tile = world.map.layers.structure.get(target_key, {})
 					var resistance = float(tile.get("resistance", world.WALL_DEFS[tile.type].resistance))
-					tile.health -= enemy.damage * (1 - resistance)
+					tile.health -= attack_damage * (1 - resistance)
 					if tile.health <= 0:
 						world.remove_structure(target_key)
 						visuals.remove_fixed(target_key)
@@ -1691,19 +1755,18 @@ func update_enemies(delta: float) -> void:
 		else:
 			enemy.ai = "navigate"
 			var steering = direction.normalized()
+			var separation = Vector3.ZERO
 			var current = world.cell(pos)
-			var bucket = Vector2i(floori(pos.x / 1.5), floori(pos.z / 1.5))
 			var crowd_start = Time.get_ticks_usec()
-			for dx in range(-1, 2):
-				for dy in range(-1, 2):
-					for other_uid in buckets.get(bucket + Vector2i(dx, dy), []):
-						if other_uid == uid or not enemies.has(other_uid): continue
-						var away = pos - enemies[other_uid].node.position
-						away.y = 0
-						var squared = away.length_squared()
-						if squared < 1.6 and squared > 0.001:
-							var distance = sqrt(squared)
-							steering += away * ((1.2 - distance) * 0.7 / distance)
+			for other_uid in enemy_index.nearby(pos, 1.5, 16):
+				if other_uid == uid or not enemies.has(other_uid): continue
+				var away = pos - enemies[other_uid].node.position
+				away.y = 0
+				var squared = away.length_squared()
+				if squared < 1.6 and squared > 0.001:
+					var distance = sqrt(squared)
+					separation += away * ((1.2 - distance) * 0.7 / distance)
+			steering += separation.limit_length(0.55)
 			crowd_us += Time.get_ticks_usec() - crowd_start
 			var speed = float(enemy.speed) * (1 - minf(0.9, enemy.slow))
 			speed /= world.movement_cost(current)
@@ -1715,8 +1778,15 @@ func update_enemies(delta: float) -> void:
 		movement_us += Time.get_ticks_usec() - movement_start
 		var model = node.get_node("Model")
 		model.position.y = sin(elapsed * enemy.speed * 4 + uid) * 0.035 if enemy.ai == "navigate" else 0
+		enemy_index.move(uid, node.position)
+		wounded_index.move(uid, node.position)
+		visuals.enemy_renderer.sync(uid)
 	simulation_phases.enemy_movement = movement_us / 1000.0
 	simulation_phases.enemy_crowd = crowd_us / 1000.0
+	var update_us = maxi(1, Time.get_ticks_usec() - update_start)
+	if not work.is_empty(): enemy_batch = maxi(48, mini(population + 32, int(lerpf(enemy_batch, work.size() * 3500.0 / update_us, 0.15))))
+	simulation_phases.enemy_updates = work.size()
+	simulation_phases.enemy_step_ms = maximum_step * 1000.0
 
 func update_towers(delta: float) -> void:
 	for key in world.construction.keys():
@@ -1735,14 +1805,14 @@ func update_towers(delta: float) -> void:
 		if tower.kind not in ["tower", "trap"]: continue
 		var target = -1
 		var best_score = -1e20
-		for uid in enemies:
+		var targeting_range = tower.range * (1 + bonus("range") + bonus("tower_range"))
+		var exclude: Array[RID] = []
+		if visuals.structures.has(key): exclude.append(visuals.structures[key].get_rid())
+		for uid in enemy_index.nearby(pos, targeting_range):
 			var enemy = enemies[uid]
 			var ep = enemy.node.position + Vector3.UP
 			var distance = pos.distance_to(ep)
-			if distance > tower.range * (1 + bonus("range") + bonus("tower_range")): continue
-			var exclude: Array[RID] = []
-			if visuals.structures.has(key): exclude.append(visuals.structures[key].get_rid())
-			if tower.id != "mortar" and not sight(pos, ep, exclude): continue
+			if distance > targeting_range: continue
 			var score = -distance
 			match int(tower.target_mode):
 				1: score = enemy.max_health
@@ -1752,6 +1822,7 @@ func update_towers(delta: float) -> void:
 				5: score = -enemy.health
 				6: score = enemy.damage * enemy.speed
 			if score > best_score:
+				if tower.id != "mortar" and not sight(pos, ep, exclude): continue
 				best_score = score
 				target = uid
 		if target < 0: continue
@@ -1774,11 +1845,14 @@ func update_towers(delta: float) -> void:
 		if tower.slow > 0:
 			enemies[target].slow = maxf(enemies[target].slow, tower.slow)
 			enemies[target].slow_time = 2.0
+			enemies[target].slow_at = elapsed
 		if tower.id == "flame":
+			if not advance_enemy_dots(target): continue
 			if enemies[target].burn <= 8:
 				enemies[target].burn = 8.0
 				enemies[target].burn_source = "tower"
 			enemies[target].burn_time = 3
+			enemies[target].burn_at = elapsed
 		if tower.id == "mortar":
 			var travel_time = maxf(0.5, pos.distance_to(target_pos) / 18)
 			var velocity = (target_pos - pos) / travel_time + Vector3.UP * 0.5 * 16 * travel_time
@@ -1793,7 +1867,7 @@ func update_towers(delta: float) -> void:
 			for i in 3:
 				var closest = -1
 				var distance = 5.0
-				for uid in enemies:
+				for uid in enemy_index.nearby(previous, 5):
 					var ep = enemies[uid].node.position + Vector3.UP
 					if uid not in struck and ep.distance_to(previous) < distance and sight(previous, ep):
 						closest = uid
@@ -1807,21 +1881,23 @@ func update_towers(delta: float) -> void:
 		elif tower.splash > 0:
 			explosion(target_pos, amount, tower.splash, "tower")
 			if tower.slow > 0:
-				for enemy in enemies.values():
+				for uid in enemy_index.nearby(target_pos, tower.splash):
+					var enemy = enemies[uid]
 					if enemy.node.position.distance_to(target_pos) < tower.splash:
 						enemy.slow = maxf(enemy.slow, tower.slow)
 						enemy.slow_time = 2
+						enemy.slow_at = elapsed
 		else:
 			damage_enemy(target, amount, "tower", pos)
 		if tower.get("branch_id", "") == "resonant":
-			for uid in enemies.keys():
+			for uid in enemy_index.nearby(target_pos, 6):
 				if uid != target and (enemies[uid].node.position + Vector3.UP).distance_to(target_pos) < 6 and sight(target_pos, enemies[uid].node.position + Vector3.UP):
 					visuals.beam(target_pos, enemies[uid].node.position + Vector3.UP, Color("cb9df1"))
 					damage_enemy(uid, amount * 0.35, "tower", pos)
 					break
 		if tower.id == "rail":
 			var aim = (target_pos - pos).normalized()
-			for uid in enemies.keys():
+			for uid in enemy_index.nearby(pos, tower.range):
 				if uid == target: continue
 				var diff = enemies[uid].node.position + Vector3.UP - pos
 				var along = diff.dot(aim)
@@ -1874,10 +1950,11 @@ func update_hazards() -> void:
 		if player.position.distance_to(pos) < 1.8:
 			if tile.type != "slow": damage_player((8 if tile.type != "mine" else 45) * world.rule("hazard_damage"), true)
 			affected = true
-		for uid in enemies.keys():
+		for uid in enemy_index.nearby(pos, 1.8):
+			if not enemies.has(uid): continue
 			var enemy = enemies[uid]
 			if enemy.node.position.distance_to(pos) < 1.8:
-				if tile.type == "slow": enemy.slow = 0.5; enemy.slow_time = 1
+				if tile.type == "slow": enemy.slow = 0.5; enemy.slow_time = 1; enemy.slow_at = elapsed
 				else: damage_enemy(uid, (10 if tile.type != "mine" else 95) * world.rule("hazard_damage"), "tower", pos)
 				affected = true
 		if tile.type == "mine" and affected:
@@ -2169,16 +2246,16 @@ func benchmark_setup() -> void:
 		max_core = 6000
 		core_health = max_core
 	if benchmark_stress:
-		max_core = 60000
+		max_core = 1000000000
 		core_health = max_core
-		max_health = 60000
+		max_health = 1000000000
 		health = max_health
 		wave = 49
 		completed = 49
 		world.evolve(49)
 		visuals.rebuild()
 		start_wave()
-		for i in active_cap: spawn_enemy(catalog.enemies.keys()[i % 9])
+		for i in mini(64, benchmark_population): spawn_enemy(catalog.enemies.keys()[i % 9])
 		if benchmark_horde > 0:
 			spawn_queue.clear()
 			spawn_reserve = {"grunt": benchmark_horde}
@@ -2211,6 +2288,11 @@ func benchmark_update(delta: float) -> void:
 	benchmark_time += delta
 	if benchmark_time > benchmark_duration or (state == "results" and benchmark_time > 10):
 		print("BENCHMARK FRAMES ", JSON.stringify(benchmark_frame_summary()))
+		var coverage = {"updated_enemies": 0, "oldest_update_ms": 0.0, "render_batches": visuals.enemy_renderer.groups.size()}
+		for enemy in enemies.values():
+			if enemy.get("simulation_ticks", 0) > 0: coverage.updated_enemies += 1
+			coverage.oldest_update_ms = maxf(coverage.oldest_update_ms, (elapsed - float(enemy.get("simulated_at", elapsed))) * 1000.0)
+		print("BENCHMARK COVERAGE ", JSON.stringify(coverage))
 		print("BENCHMARK FINAL ", JSON.stringify({"seconds": elapsed, "completed": completed, "stats": stats, "enemies": enemies.size(), "fps": Engine.get_frames_per_second(), "simulation_ms": simulation_ms, "peak_simulation_ms": peak_simulation_ms, "nav_ms": world.nav_ms, "memory": OS.get_static_memory_usage(), "resolution": str(DisplayServer.window_get_size()), "samples": benchmark_stats}))
 		for enemy in enemies.values().slice(0, 10): print("BENCHMARK survivor ", enemy.type, " hp=", enemy.health, " position=", enemy.node.position, " cell=", world.cell(enemy.node.position), " next=", world.next_cell(world.cell(enemy.node.position)), " ai=", enemy.ai)
 		quit_game()
@@ -2231,8 +2313,11 @@ func benchmark_update(delta: float) -> void:
 			reload_timer = 0
 			player.refresh_gun()
 			print("BENCHMARK weapon ", id)
-	if benchmark_stress and state == "wave" and enemies.size() < active_cap:
-		spawn_enemy(catalog.enemies.keys()[int(benchmark_time * 60) % 9])
+	if benchmark_stress and state == "wave" and enemies.size() < benchmark_population:
+		var spawn_start = Time.get_ticks_usec()
+		for i in mini(64, benchmark_population - enemies.size()):
+			spawn_enemy(catalog.enemies.keys()[next_uid % 9])
+			if Time.get_ticks_usec() - spawn_start > 2000: break
 	if state == "preparation":
 		if reward_pending:
 			choose_upgrade(0)

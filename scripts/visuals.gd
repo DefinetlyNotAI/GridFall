@@ -1,5 +1,8 @@
 extends Node3D
 
+const EnemyRenderer = preload("res://scripts/enemy_renderer.gd")
+var enemy_renderer
+
 var game
 var geometry: Node3D
 var structures: Dictionary = {}
@@ -133,6 +136,9 @@ func add_multimesh(parent: Node3D, mesh: Mesh, transforms: Array, mat: Material)
 
 func setup(owner_game) -> void:
 	game = owner_game
+	enemy_renderer = EnemyRenderer.new()
+	add_child(enemy_renderer)
+	enemy_renderer.setup(self)
 	effects_rng.randomize()
 	unit_box_mesh = BoxMesh.new()
 	unit_cylinder_mesh = CylinderMesh.new()
@@ -652,15 +658,7 @@ func enemy(data: Dictionary) -> CharacterBody3D:
 	model.name = "Model"
 	model.scale = Vector3.ONE * scale_value
 	body.add_child(model)
-	var mesh = MeshInstance3D.new()
-	mesh.mesh = enemy_mesh(data.type, color)
-	if enemy_material == null:
-		enemy_material = StandardMaterial3D.new()
-		enemy_material.vertex_color_use_as_albedo = true
-		enemy_material.roughness = 0.72
-		enemy_material.metallic = 0.35
-	mesh.material_override = enemy_material
-	model.add_child(mesh)
+	enemy_renderer.add_enemy(data, body, scale_value)
 	return body
 
 func enemy_mesh(kind: String, color: Color) -> ArrayMesh:
