@@ -34,6 +34,8 @@ var planning_action = ""
 var replace_key = ""
 var build_rotation = 0
 var planning_preview: Label
+var loadout_selected = ""
+var settings_section = "Gameplay"
 
 func setup(owner_game) -> void:
 	game = owner_game
@@ -185,6 +187,28 @@ func spacer(parent: Node) -> void:
 	control.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	parent.add_child(control)
 
+func scroll_column(parent: Node, separation: int = 12) -> VBoxContainer:
+	var scroll = ScrollContainer.new()
+	scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	parent.add_child(scroll)
+	var content = column(scroll, separation)
+	content.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	return content
+
+func section(parent: Node, title: String) -> void:
+	label(parent, title, 13, Color("7ed9cb"))
+	var line = HSeparator.new()
+	parent.add_child(line)
+
+func readout(parent: Node, title: String, value: String) -> void:
+	var line = row(parent, 20)
+	label(line, title, 17, Color("92abb8")).size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var amount = label(line, value, 20)
+	amount.autowrap_mode = TextServer.AUTOWRAP_OFF
+	amount.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+
 func wipe() -> void:
 	for child in screen.get_children():
 		screen.remove_child(child)
@@ -238,40 +262,49 @@ func show_menu() -> void:
 	overlay = "menu"
 	wipe()
 	var margin = backdrop(0.55)
-	var layout = row(margin, 60)
-	var left = column(layout, 8)
-	left.custom_minimum_size.x = 380
-	spacer(left)
-	label(left, "GRIDFALL", 64, Color("e2f3f1"))
-	label(left, "HOLD THE CORE. BUILD THE NEXT CHANCE.", 15, Color("91c8c7"))
-	label(left, "ENDLESS DEFENSE", 19, Color("f2c482"))
-	label(left, "OPERATIONS", 13, Color("6cd7c5"))
-	var deploy = button(left, "Deploy", show_selection)
+	var body = column(margin, 24)
+	var title = row(body)
+	label(title, "GRIDFALL", 48, Color("e2f3f1")).size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	label(title, "ENDLESS DEFENSE", 15, Color("e3bb7d")).autowrap_mode = TextServer.AUTOWRAP_OFF
+	var layout = row(body, 48)
+	layout.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	var left = scroll_column(layout, 10)
+	left.get_parent().custom_minimum_size.x = 330
+	left.get_parent().size_flags_horizontal = Control.SIZE_FILL
+	section(left, "OPERATIONS")
+	if game.resume_available: button(left, "Continue saved run", func(): game.load_run())
+	var deploy = button(left, "Deploy new run", show_selection)
 	for state in ["normal", "hover", "pressed", "focus"]:
 		var action_style: StyleBoxFlat = root.theme.get_stylebox(state, "Button").duplicate()
 		action_style.bg_color = Color("23463f") if state != "pressed" else Color("17362f")
 		action_style.border_color = Color("6cd7c5")
 		deploy.add_theme_stylebox_override(state, action_style)
 	deploy.add_theme_color_override("font_color", Color("f0d7a7"))
-	if game.resume_available: button(left, "Continue saved run", func(): game.load_run())
-	label(left, "PROGRESSION", 13, Color("6cd7c5"))
+	section(left, "PROGRESSION")
 	button(left, "Technology research · %d TP" % game.profile.data.tp, show_research)
 	button(left, "Ascension · %d cores" % game.profile.data.cores, show_ascension)
 	button(left, "Loadout", show_loadout)
-	label(left, "WORLD / RECORDS", 13, Color("6cd7c5"))
+	section(left, "TOOLS & RECORDS")
 	button(left, "Sandbox map editor", func(): editor.open())
 	button(left, "Statistics", show_statistics)
 	button(left, "Settings", show_settings)
 	button(left, "Quit", func(): game.quit_game())
-	spacer(left)
-	label(left, "FPS / TOWER DEFENSE / ROGUELITE", 13, Color("86a0ae"))
-	var right = column(layout)
+	var right = column(layout, 18)
 	right.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	spacer(right)
-	label(right, "01 / PREPARE", 17, Color("6cd7c5"))
-	label(right, "Choose your ground.\nMake every defense count.", 32)
-	label(right, "Fight in first person. Plan between waves.\nThe horde has no final wave.\n\nDefeat earns permanent technology.\nSandbox worlds never award progression.", 19, Color("9bb1bd"))
+	section(right, "OPERATOR RECORD")
+	readout(right, "Best wave", str(game.profile.data.best))
+	readout(right, "Completed runs", str(game.profile.data.runs))
+	readout(right, "Technologies researched", "%d / %d" % [game.profile.data.research.size(), game.catalog.technologies.size()])
+	readout(right, "Ascension cycles", str(game.profile.data.ascensions))
+	section(right, "STARTING ARSENAL")
+	var primary = str(game.profile.data.loadout)
+	var secondary = str(game.profile.data.secondary_loadout) if game.profile.perk("dual_loadout") > 0 else "pistol"
+	label(right, "%s / %s" % [game.catalog.weapons.get(primary, game.catalog.weapons.rifle).name, game.catalog.weapons.get(secondary, game.catalog.weapons.pistol).name], 24)
+	label(right, "Fight in first person. Build between waves. Defeat earns permanent technology for the next deployment.", 18, Color("9bb1bd"))
+	if game.resume_available: label(right, "A saved run is available. Continue restores its original equipment and research.", 16, Color("e3bb7d"))
 	spacer(right)
+	label(body, "HOLD THE CORE. BUILD THE NEXT CHANCE.", 14, Color("91c8c7"))
 
 func show_selection() -> void:
 	overlay = "selection"
@@ -281,14 +314,13 @@ func show_selection() -> void:
 	var settings_panel = PanelContainer.new()
 	settings_panel.custom_minimum_size.x = 420
 	content.add_child(settings_panel)
-	var settings = column(settings_panel)
-	settings.custom_minimum_size.x = 400
-	label(settings, "WORLD", 17, Color("7ed9cb"))
+	var settings = scroll_column(settings_panel, 16)
+	section(settings, "WORLD")
 	var maps = OptionButton.new()
 	for world_name in game.World.LEVEL_NAMES: maps.add_item(world_name)
 	maps.selected = game.selected_map
 	settings.add_child(maps)
-	label(settings, "RULES", 17, Color("7ed9cb"))
+	section(settings, "OPERATION RULES")
 	var mode_picker = OptionButton.new()
 	var mode_ids = game.Rules.MODES.keys()
 	for id in mode_ids: mode_picker.add_item(game.Rules.MODES[id].name)
@@ -304,9 +336,12 @@ func show_selection() -> void:
 	seed_input.value = game.seed_value
 	settings.add_child(seed_input)
 	var world_description = label(settings, "", 17, Color("a1b7c1"))
+	var begin = button(settings, "Begin run", func(): deploy_run(mode_ids[mode_picker.selected]))
 	var refresh_world = func():
 		var mode_id = mode_ids[mode_picker.selected]
 		configure_rules.visible = mode_id == "challenge"
+		begin.disabled = mode_id == "siege" and game.profile.data.best < 20
+		begin.text = "Reach wave 20 to unlock" if begin.disabled else ("Begin Sandbox" if mode_id == "sandbox" else "Begin run")
 		if mode_id == "daily": game.seed_value = game.Rules.daily_seed(); seed_input.value = game.seed_value
 		seed_input.editable = mode_id != "daily"
 		rule_description.text = game.Rules.MODES[mode_id].description
@@ -320,8 +355,6 @@ func show_selection() -> void:
 	mode_picker.item_selected.connect(func(_index): refresh_world.call())
 	seed_input.value_changed.connect(func(value): game.seed_value = int(value); refresh_world.call())
 	refresh_world.call()
-	spacer(settings)
-	button(settings, "Begin run", func(): game.start_run(mode_ids[mode_picker.selected]))
 	var preview_panel = PanelContainer.new()
 	preview_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	content.add_child(preview_panel)
@@ -330,6 +363,19 @@ func show_selection() -> void:
 	preview.miniature = true
 	preview.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	preview_panel.add_child(preview)
+
+func deploy_run(mode_id: String) -> void:
+	if mode_id == "sandbox" or game.read_run_checkpoint() == null:
+		game.start_run(mode_id)
+		return
+	var dialog = ConfirmationDialog.new()
+	dialog.title = "Replace saved run?"
+	dialog.dialog_text = "Saving this new run will replace your existing checkpoint. Continue your saved run from the main menu to keep playing it."
+	dialog.get_ok_button().text = "Deploy new run"
+	dialog.confirmed.connect(func(): game.start_run(mode_id); dialog.queue_free())
+	dialog.canceled.connect(func(): dialog.queue_free())
+	root.add_child(dialog)
+	dialog.popup_centered()
 
 func show_challenge_rules() -> void:
 	var dialog = ConfirmationDialog.new()
@@ -474,11 +520,14 @@ func show_upgrades() -> void:
 	var choices = row(body, 20)
 	for i in game.upgrades.size():
 		var upgrade = game.upgrades[i]
-		var col = column(choices)
-		col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		label(col, "%s / %s" % [upgrade.get("icon", str(i + 1)), upgrade.name], 24)
-		label(col, upgrade.get("rarity", "Common"), 16, Color("bba1de") if upgrade.get("rarity") == "Rare" else Color("9ec19b"))
+		var frame = PanelContainer.new()
+		frame.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		choices.add_child(frame)
+		var col = column(frame, 16)
+		label(col, "OPTION %02d / %s" % [i + 1, upgrade.get("rarity", "Common").to_upper()], 13, Color("e3bb7d"))
+		label(col, upgrade.name, 25)
 		label(col, upgrade.description, 19, Color("a7bfca"))
+		spacer(col)
 		if upgrade.has("cap"):
 			var unit = {"health": "HP", "shield": "HP", "regen": "HP/s", "burn": "damage/s"}.get(upgrade.effect, "%")
 			label(col, "Maximum total bonus: %.0f%s" % [upgrade.cap * (100 if unit == "%" else 1), unit], 14, Color("809daa"))
@@ -517,15 +566,49 @@ func confirm_research(node: Dictionary) -> void:
 
 func show_loadout() -> void:
 	overlay = "loadout"
-	var body = page("LOADOUT", "Choose a starting primary weapon. Your service pistol occupies the second slot.")
+	var paired = game.profile.perk("dual_loadout") > 0
+	var body = page("STARTING ARSENAL", "Selections apply to your next deployment. Saved runs retain their original equipment.")
+	var content = row(body, 28)
+	content.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	var weapons = scroll_column(content, 8)
+	weapons.get_parent().custom_minimum_size.x = 340
+	weapons.get_parent().size_flags_horizontal = Control.SIZE_FILL
+	section(weapons, "WEAPON CATALOG")
+	if not game.catalog.weapons.has(loadout_selected): loadout_selected = game.profile.data.loadout
+	if not game.catalog.weapons.has(loadout_selected): loadout_selected = "rifle"
 	for id in game.catalog.weapons:
 		var definition = game.catalog.weapons[id]
 		var unlocked = definition.tech == "" or game.profile.rank(definition.tech) > 0
-		var line = row(body)
-		var text = label(line, "%s · %d damage · %d magazine" % [definition.name, definition.damage, definition.magazine], 20)
-		text.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		button(line, "Selected" if game.profile.data.loadout == id else ("Select" if unlocked else "Research required"), func(): game.profile.data.loadout = id; game.profile.save(); show_loadout(), not unlocked)
-		if game.profile.perk("dual_loadout") > 0: button(line, "Secondary selected" if game.profile.data.secondary_loadout == id else "Secondary", func(): game.profile.data.secondary_loadout = id; game.profile.save(); show_loadout(), not unlocked)
+		var assignment = "PRIMARY" if game.profile.data.loadout == id else ""
+		if (game.profile.data.secondary_loadout if paired else "pistol") == id: assignment += " / SECONDARY" if assignment != "" else "SECONDARY"
+		var entry = button(weapons, definition.name + "\n" + (assignment if assignment != "" else ("Available" if unlocked else "Research required")), func(): loadout_selected = id; show_loadout())
+		entry.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		entry.modulate = Color("7ed9cb") if id == loadout_selected else Color.WHITE
+	var detail = scroll_column(content, 18)
+	var selected = game.catalog.weapons[loadout_selected]
+	var available = selected.tech == "" or game.profile.rank(selected.tech) > 0
+	section(detail, "BASE WEAPON SPECIFICATION")
+	label(detail, selected.name, 32)
+	label(detail, "Deployment rolls and research bonuses modify these base values.", 15, Color("92abb8"))
+	label(detail, "PROJECTILE" if selected.speed > 0 else ("CLOSE COMBAT" if selected.magazine == 0 else "HITSCAN"), 14, Color("e3bb7d"))
+	readout(detail, "Damage per attack", "%d × %d pellets" % [selected.damage, selected.pellets] if selected.pellets > 1 else str(selected.damage))
+	readout(detail, "Attack rate", "%.2f / second" % (1.0 / selected.interval))
+	readout(detail, "Range", "%.0f m" % selected.range)
+	if selected.magazine > 0:
+		readout(detail, "Magazine / reserve", "%d / %d" % [selected.magazine, selected.reserve])
+		readout(detail, "Reload", "%.2f s" % selected.reload)
+	if selected.splash > 0: readout(detail, "Blast radius", "%.1f m" % selected.splash)
+	section(detail, "ASSIGNMENT")
+	button(detail, "Assigned to primary" if game.profile.data.loadout == loadout_selected else "Assign primary", func(): game.profile.data.loadout = loadout_selected; game.profile.save(); show_loadout(), not available or game.profile.data.loadout == loadout_selected)
+	if paired:
+		button(detail, "Assigned to secondary" if game.profile.data.secondary_loadout == loadout_selected else "Assign secondary", func(): game.profile.data.secondary_loadout = loadout_selected; game.profile.save(); show_loadout(), not available or game.profile.data.secondary_loadout == loadout_selected)
+	else:
+		label(detail, "Service Pistol occupies your secondary slot. Paired arsenal in Ascension unlocks a configurable secondary.", 16, Color("92abb8"))
+	if not available:
+		for technology in game.catalog.technologies:
+			if technology.id == selected.tech:
+				label(detail, "Requires " + technology.name, 17, Color("e3bb7d"))
+				button(detail, "View required research", func(): research_branch = technology.branch; research_filter = ""; progression.selection = technology.id; show_research())
 
 func show_ascension() -> void:
 	progression.show_ascension()
@@ -570,17 +653,24 @@ func show_inventory() -> void:
 	content.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	var scroll = ScrollContainer.new()
 	scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	content.add_child(scroll)
 	var slots = GridContainer.new()
-	slots.columns = 5
+	slots.columns = 4
+	slots.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	slots.add_theme_constant_override("h_separation", 8)
 	slots.add_theme_constant_override("v_separation", 8)
 	scroll.add_child(slots)
+	scroll.resized.connect(func(): slots.columns = clampi(int((scroll.size.x + 8) / 158), 1, 4))
 	for i in game.capacity:
 		var text = "%02d / Empty" % (i + 1)
 		if i < game.backpack.size(): text = "%02d / %s\n%s" % [i + 1, game.item_name(game.backpack[i]), ["Common", "Uncommon", "Rare", "Epic", "Legendary"][int(game.backpack[i].get("rarity", 0))]]
 		var slot = button(slots, text, func(): inventory_selected = i; show_inventory(), i >= game.backpack.size())
-		slot.custom_minimum_size = Vector2(175, 78)
+		slot.custom_minimum_size = Vector2(150, 78)
+		slot.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		slot.clip_text = true
+		slot.tooltip_text = text
+		if i == inventory_selected: slot.modulate = Color("7ed9cb")
 		slot.set_drag_forwarding(func(_position): return {"inventory": i} if i < game.backpack.size() else null, func(_position, data): return data is Dictionary and data.has("inventory"), func(_position, data):
 				var from = int(data.inventory)
 				if from >= 0 and from < game.backpack.size():
@@ -595,6 +685,7 @@ func show_inventory() -> void:
 					show_inventory())
 	var detail_scroll = ScrollContainer.new()
 	detail_scroll.custom_minimum_size.x = 320
+	detail_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	content.add_child(detail_scroll)
 	var detail = column(detail_scroll)
 	detail.custom_minimum_size.x = 320
@@ -627,33 +718,50 @@ func show_shop() -> void:
 	var title = label(top, "SUPPLY / %d SCRAP" % game.scrap, 30)
 	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	button(top, "Close", close_overlay)
-	label(body, "Supply is available between waves.", 18)
+	var content = row(body, 32)
+	content.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	var supplies = scroll_column(content, 16)
+	section(supplies, "FIELD SUPPLIES")
 	for pair in [["ammo", "Ammunition · refill reserves"], ["medkit", "Medkit · restore 50 health"], ["grenade", "Grenade · 120 area damage"], ["core", "Core service · restore 120 HP"]]:
-		button(body, pair[1] + " · %d scrap" % game.supply_cost(pair[0]), func(): game.buy(pair[0]), game.scrap < game.supply_cost(pair[0]) or (pair[0] == "core" and not game.repairs_allowed()))
-	label(body, "WEAPONS / COMMON", 17, Color("78d6c5"))
-	var table = GridContainer.new()
-	table.columns = 3
-	table.add_theme_constant_override("h_separation", 12)
-	table.add_theme_constant_override("v_separation", 12)
-	body.add_child(table)
+		label(supplies, pair[1], 19)
+		button(supplies, "Purchase / %d scrap" % game.supply_cost(pair[0]), func(): game.buy(pair[0]), game.scrap < game.supply_cost(pair[0]) or (pair[0] == "core" and not game.repairs_allowed()))
+	if not game.repairs_allowed(): label(supplies, "Core service is disabled by this run's rules.", 15, Color("e3bb7d"))
+	var weapons = scroll_column(content, 12)
+	section(weapons, "COMMON WEAPONS")
 	for id in game.catalog.weapons:
 		var definition = game.catalog.weapons[id]
-		button(table, definition.name + " · %d" % game.supply_cost(id), func(): game.buy(id), not game.unlocked(definition) or game.scrap < game.supply_cost(id))
+		var item = row(weapons)
+		label(item, definition.name, 19).size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		button(item, "%d scrap" % game.supply_cost(id) if game.unlocked(definition) else "Locked", func(): game.buy(id), not game.unlocked(definition) or game.scrap < game.supply_cost(id))
+	label(weapons, "Purchases go to your backpack. Manage equipment in Inventory.", 15, Color("92abb8"))
 
 func show_pause() -> void:
 	overlay = "pause"
 	wipe()
-	var layout = row(backdrop(0.9))
-	var body = column(layout)
-	body.custom_minimum_size.x = 480
+	var layout = row(backdrop(0.9), 48)
+	var body = column(layout, 16)
+	body.custom_minimum_size.x = 360
 	spacer(body)
 	label(body, "PAUSED", 38)
 	button(body, "Resume", func(): game.state = game.previous_state; close_overlay())
-	button(body, "Save run", func(): if game.save_run(): notify("Run saved."), game.previous_state not in ["preparation", "wave"] or not game.eligible)
+	button(body, "Save run", func():
+		if game.save_run(): notify("Run saved."),
+		game.previous_state not in ["preparation", "wave"] or not game.eligible)
 	button(body, "Settings", show_settings)
 	if not game.saved_editor.is_empty(): button(body, "Return to map editor", func(): editor.return_from_playtest())
 	button(body, "Abandon run", func(): confirm_abandon())
 	spacer(body)
+	var summary = column(layout, 18)
+	summary.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	spacer(summary)
+	section(summary, "CURRENT OPERATION")
+	readout(summary, "Mode", game.Rules.MODES.get(game.mode, {"name": game.mode}).name)
+	readout(summary, "Wave", str(game.wave))
+	readout(summary, "Time survived", "%02d:%02d" % [int(game.elapsed) / 60, int(game.elapsed) % 60])
+	readout(summary, "Core integrity", "%d / %d" % [game.core_health, game.max_core])
+	readout(summary, "Scrap", str(game.scrap))
+	label(summary, "Simulation is paused. Save preserves this run's equipment, defenses and combat state." if game.eligible else "Sandbox progress cannot be saved and awards no permanent rewards.", 17, Color("92abb8"))
+	spacer(summary)
 
 func confirm_abandon() -> void:
 	var dialog = ConfirmationDialog.new()
@@ -668,38 +776,66 @@ func show_results() -> void:
 	notice_time = 0
 	overlay = "results"
 	wipe()
-	var body = column(backdrop())
-	spacer(body)
-	label(body, game.defeat_reason.to_upper(), 42, Color("f0a17f"))
-	label(body, "WAVE %d / %d CLEARED / %02d:%02d" % [game.wave, game.stats.get("cleared", game.completed), int(game.elapsed) / 60, int(game.elapsed) % 60], 25)
+	var body = column(backdrop(), 22)
+	label(body, "OPERATION ENDED", 14, Color("e3bb7d"))
+	label(body, game.defeat_reason.to_upper(), 36, Color("f0a17f"))
+	var content = row(body, 48)
+	content.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	var combat = scroll_column(content, 12)
+	var outcome = scroll_column(content, 16)
 	var s = game.stats
-	label(body, "Enemies %d   ·   Bosses %d   ·   Best streak %d\nDamage %.0f   ·   Weapons %.0f   ·   Towers %.0f\nStructures %d   ·   Scrap earned %d   ·   Spent %d" % [s.kills, s.bosses, s.streak, s.damage, s.weapon_damage, s.tower_damage, s.built, s.earned, s.spent], 21)
-	if s.get("ability_damage", 0) > 0: label(body, "Pulse damage %.0f" % s.ability_damage, 18)
-	label(body, "Score %d%s" % [s.get("score", 0), " · " + ", ".join(s.get("records", [])) if not s.get("records", []).is_empty() else ""], 20)
-	if not s.get("achievements", []).is_empty(): label(body, "Achievements: " + ", ".join(s.achievements), 18, Color("e9c68c"))
+	section(combat, "COMBAT REPORT")
+	for entry in [["Waves cleared", str(s.get("cleared", game.completed))], ["Enemies defeated", str(s.kills)], ["Bosses defeated", str(s.bosses)], ["Best streak", str(s.streak)], ["Weapon damage", "%.0f" % s.weapon_damage], ["Tower damage", "%.0f" % s.tower_damage], ["Pulse damage", "%.0f" % s.get("ability_damage", 0)], ["Structures built", str(s.built)], ["Scrap earned / spent", "%d / %d" % [s.earned, s.spent]]]:
+		readout(combat, entry[0], entry[1])
+	section(combat, "DAMAGE BREAKDOWN")
+	readout(combat, "Total damage", "%.0f" % s.damage)
+	readout(combat, "Explosive damage", "%.0f" % s.get("explosive_damage", 0))
+	readout(combat, "Elemental damage", "%.0f" % s.get("elemental_damage", 0))
+	section(outcome, "DEPLOYMENT OUTCOME")
+	readout(outcome, "Final wave", str(game.wave))
+	readout(outcome, "Time survived", "%02d:%02d" % [int(game.elapsed) / 60, int(game.elapsed) % 60])
+	readout(outcome, "Score", str(s.get("score", 0)))
+	if not s.get("records", []).is_empty(): label(outcome, "Records: " + ", ".join(s.records), 17, Color("e3bb7d"))
+	section(outcome, "PERMANENT PROGRESSION")
 	if not game.eligible:
-		label(body, "SANDBOX / NO PERMANENT REWARDS", 23, Color("9bb1bc"))
+		label(outcome, "SANDBOX / NO PERMANENT REWARDS", 23, Color("9bb1bc"))
 	elif game.last_reward < 0:
-		label(body, "Reward could not be saved: " + game.profile.error, 20, Color("ef9b7d"))
-		button(body, "Retry reward save", func():
+		label(outcome, "Reward could not be saved: " + game.profile.error, 20, Color("ef9b7d"))
+		button(outcome, "Retry reward save", func():
 			game.last_reward = game.profile.award(game.run_id, game.stats, true)
 			if game.last_reward >= 0: game.remove_run_save()
 			show_results())
 	else:
-		label(body, "+%d TECHNOLOGY POINTS / %d AVAILABLE" % [game.last_reward, game.profile.data.tp], 27, Color("7edcc7"))
+		label(outcome, "+%d TP" % game.last_reward, 36, Color("7edcc7"))
+		readout(outcome, "Available balance", "%d TP" % game.profile.data.tp)
+	if not s.get("achievements", []).is_empty():
+		section(outcome, "ACHIEVEMENTS EARNED")
+		for achievement in s.achievements: label(outcome, achievement, 18, Color("e9c68c"))
 	var controls = row(body)
 	button(controls, "Technology research", show_research)
 	button(controls, "New run", func(): game.to_menu(); show_selection())
 	button(controls, "Main menu", func(): game.to_menu())
 	if not game.saved_editor.is_empty(): button(controls, "Return to editor", func(): editor.return_from_playtest())
-	spacer(body)
 
 func show_statistics() -> void:
 	overlay = "statistics"
-	var body = page("LIFETIME STATISTICS")
+	var body = page("SERVICE RECORD")
 	var data = game.profile.data
-	label(body, "Runs completed    %d\nBest wave    %d\nEnemies defeated    %d\nBosses defeated    %d\nTechnology Points    %d\nResearch nodes purchased    %d" % [data.runs, data.best, data.kills, data.bosses, data.tp, data.research.size()], 25)
-	label(body, "Highest score    %d\nSurvival time    %.1f minutes\nAchievements    %s" % [data.high_score, data.survival_time / 60, ", ".join(data.achievements.keys()) if not data.achievements.is_empty() else "None yet"], 22)
+	var content = row(body, 48)
+	content.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	var record = scroll_column(content, 14)
+	section(record, "LIFETIME OPERATIONS")
+	for entry in [["Completed runs", str(data.runs)], ["Best wave", str(data.best)], ["Highest score", str(data.high_score)], ["Survival time", "%.1f minutes" % (data.survival_time / 60)], ["Enemies defeated", str(data.kills)], ["Bosses defeated", str(data.bosses)]]:
+		readout(record, entry[0], entry[1])
+	section(record, "PROGRESSION")
+	readout(record, "Technology Points", str(data.tp))
+	readout(record, "Research nodes", "%d / %d" % [data.research.size(), game.catalog.technologies.size()])
+	readout(record, "Ascensions", str(data.ascensions))
+	readout(record, "Ascension Cores", str(data.cores))
+	var achievements = scroll_column(content, 12)
+	section(achievements, "ACHIEVEMENTS / %d EARNED" % data.achievements.size())
+	if data.achievements.is_empty(): label(achievements, "No achievements yet. Complete an eligible deployment to begin your record.", 18, Color("92abb8"))
+	for achievement in data.achievements: label(achievements, achievement, 20, Color("e3bb7d"))
 
 func show_sandbox() -> void:
 	if game.mode != "sandbox" or game.state not in ["preparation", "wave"] or game.reward_pending: return
@@ -771,14 +907,19 @@ func show_settings() -> void:
 		game.apply_settings()
 		if game.state == "paused": show_pause()
 		else: show_menu())
-	var scroll = ScrollContainer.new()
-	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	body.add_child(scroll)
-	var content = row(scroll, 50)
-	var settings_col = column(content)
-	settings_col.custom_minimum_size.x = 560
+	var content = row(body, 36)
+	content.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	var navigation = column(content, 10)
+	navigation.custom_minimum_size.x = 220
+	for category in ["Gameplay", "Display", "Audio", "Controls"]:
+		button(navigation, category, func(): settings_section = category; rebind_action = ""; show_settings(), settings_section == category)
+	spacer(navigation)
+	button(navigation, "Credits & licenses", show_credits)
+	var settings_col = scroll_column(content, 18)
+	section(settings_col, settings_section.to_upper())
 	var settings = game.profile.data.settings
-	for entry in [["fov", "Field of view", 60, 110, 1], ["sensitivity", "Mouse sensitivity", 0.0005, 0.006, 0.0001], ["volume", "Effects volume", 0, 1, 0.05], ["music", "Music volume", 0, 1, 0.05], ["fps", "Frame limit", 30, 240, 10], ["enemy_cap", "Active enemy cap", 25, 250, 25], ["hud_scale", "HUD scale", 0.75, 1.5, 0.05]]:
+	for entry in [["fov", "Field of view", 60, 110, 1, "Display"], ["sensitivity", "Mouse sensitivity", 0.0005, 0.006, 0.0001, "Controls"], ["volume", "Effects volume", 0, 1, 0.05, "Audio"], ["music", "Music volume", 0, 1, 0.05, "Audio"], ["fps", "Frame limit", 30, 240, 10, "Display"], ["enemy_cap", "Active enemy cap", 25, 250, 25, "Gameplay"], ["hud_scale", "HUD scale", 0.75, 1.5, 0.05, "Display"]]:
+		if entry[5] != settings_section: continue
 		var line = row(settings_col)
 		var name_label = label(line, entry[1], 18)
 		name_label.custom_minimum_size.x = 260
@@ -789,44 +930,57 @@ func show_settings() -> void:
 		spin.value = settings[entry[0]]
 		spin.value_changed.connect(func(value): settings[entry[0]] = value; game.apply_settings())
 		line.add_child(spin)
-	for entry in [["fullscreen", "Fullscreen"], ["vsync", "VSync"], ["crosshair", "Crosshair"], ["shake", "Camera recoil"], ["adaptive", "Adaptive factions for new runs"], ["weather", "Weather visuals"], ["camera_motion", "Head bob, landing feedback and weapon sway"], ["movement_effects", "Speed lines, movement FOV and camera tilt"], ["stamina", "Slide stamina"]]:
+	for entry in [["fullscreen", "Fullscreen", "Display"], ["vsync", "VSync", "Display"], ["crosshair", "Crosshair", "Display"], ["shake", "Camera recoil", "Gameplay"], ["adaptive", "Adaptive factions for new runs", "Gameplay"], ["weather", "Weather visuals", "Display"], ["camera_motion", "Head bob, landing feedback and weapon sway", "Gameplay"], ["movement_effects", "Speed lines, movement FOV and camera tilt", "Gameplay"], ["stamina", "Slide stamina", "Gameplay"]]:
+		if entry[2] != settings_section: continue
 		var check = CheckButton.new()
 		check.text = entry[1]
 		check.button_pressed = settings[entry[0]]
 		check.toggled.connect(func(value): settings[entry[0]] = value; game.apply_settings())
 		settings_col.add_child(check)
-	var quality = OptionButton.new()
-	quality.add_item("Performance · no shadows")
-	quality.add_item("Standard · dynamic shadows")
-	quality.selected = int(settings.quality)
-	quality.item_selected.connect(func(index): settings.quality = index; game.apply_settings())
-	settings_col.add_child(quality)
-	var display = OptionButton.new()
-	for text in ["Standard rendering", "Retro · pixelated scene", "High contrast scene"]: display.add_item(text)
-	display.selected = int(settings.visual_mode)
-	display.item_selected.connect(func(index): settings.visual_mode = index; game.apply_settings())
-	settings_col.add_child(display)
-	if RenderingServer.get_current_rendering_method() == "forward_plus":
-		var advanced = CheckButton.new()
-		advanced.text = "Reflections, ambient occlusion and volumetric lighting"
-		advanced.button_pressed = settings.advanced_lighting
-		advanced.toggled.connect(func(value): settings.advanced_lighting = value; game.apply_settings())
-		settings_col.add_child(advanced)
-	var resolutions = OptionButton.new()
-	for resolution in ["1280 × 800", "1440 × 900", "1920 × 1080"]: resolutions.add_item(resolution)
-	resolutions.selected = int(settings.resolution)
-	resolutions.item_selected.connect(func(index): settings.resolution = index; game.apply_settings())
-	settings_col.add_child(resolutions)
-	button(settings_col, "Credits & licenses", show_credits)
-	var key_col = column(content)
-	key_col.custom_minimum_size.x = 450
-	label(key_col, "KEYBINDINGS", 19, Color("7bd7c3"))
+	if settings_section == "Gameplay":
+		label(settings_col, "The active cap limits simulated actors; remaining enemies stay queued. Adaptive factions apply to new runs. Slide stamina is separate from the three dash/slam bars.", 16, Color("92abb8"))
+	if settings_section == "Display":
+		label(settings_col, "Lighting quality", 17)
+		var quality = OptionButton.new()
+		quality.add_item("Performance · no shadows")
+		quality.add_item("Standard · dynamic shadows")
+		quality.selected = int(settings.quality)
+		quality.item_selected.connect(func(index): settings.quality = index; game.apply_settings())
+		settings_col.add_child(quality)
+		label(settings_col, "Scene rendering", 17)
+		var display = OptionButton.new()
+		for text in ["Standard rendering", "Retro · pixelated scene", "High contrast scene"]: display.add_item(text)
+		display.selected = int(settings.visual_mode)
+		display.item_selected.connect(func(index): settings.visual_mode = index; game.apply_settings())
+		settings_col.add_child(display)
+		if RenderingServer.get_current_rendering_method() == "forward_plus":
+			var advanced = CheckButton.new()
+			advanced.text = "Reflections, ambient occlusion and volumetric lighting"
+			advanced.button_pressed = settings.advanced_lighting
+			advanced.toggled.connect(func(value): settings.advanced_lighting = value; game.apply_settings())
+			settings_col.add_child(advanced)
+		label(settings_col, "Window resolution", 17)
+		var resolutions = OptionButton.new()
+		for resolution in ["1280 × 800", "1440 × 900", "1920 × 1080"]: resolutions.add_item(resolution)
+		resolutions.selected = int(settings.resolution)
+		resolutions.item_selected.connect(func(index): settings.resolution = index; game.apply_settings())
+		settings_col.add_child(resolutions)
+	if settings_section != "Controls": return
+	label(settings_col, "Select an action, then press a key. Escape cancels.", 16, Color("92abb8"))
+	var key_col = GridContainer.new()
+	key_col.columns = 2
+	key_col.add_theme_constant_override("h_separation", 12)
+	key_col.add_theme_constant_override("v_separation", 8)
+	settings_col.add_child(key_col)
 	for action in ["forward", "back", "left", "right", "jump", "sprint", "crouch", "grapple", "punch", "reload", "interact", "ability", "restoration", "inventory", "planning", "next_wave", "weapon1", "weapon2", "heal", "grenade", "pause"]:
 		var events = InputMap.action_get_events(action)
 		var key = events[0].as_text_physical_keycode() if not events.is_empty() else "Unbound"
 		var action_name = "Dash" if action == "sprint" else ("Crouch / slide / slam" if action == "crouch" else ("Punch / parry" if action == "punch" else action.replace("_", " ").capitalize()))
-		button(key_col, action_name + " : " + key, func(): rebind_action = action; notify("Press a key for " + action_name + ". Escape cancels."))
-	button(key_col, "Reset bindings", func(): settings.keys.clear(); game.configure_input(); show_settings())
+		var binding = button(key_col, action_name + " : " + key, func(): rebind_action = action; notify("Press a key for " + action_name + ". Escape cancels."))
+		binding.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		binding.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		binding.add_theme_font_size_override("font_size", 16)
+	button(settings_col, "Reset bindings", func(): settings.keys.clear(); game.configure_input(); show_settings())
 
 func show_credits() -> void:
 	overlay = "credits"
