@@ -321,9 +321,10 @@ func select_technology(id: String, focus: bool = false) -> void:
 		text(inspector, "RESEARCH RANK   %d / %d" % [rank_value, node.max_rank], 14, accent)
 		pips(inspector, rank_value, int(node.max_rank), accent)
 		if node.value is int or node.value is float:
-			var flat = node.effect in ["health", "shield", "core_health", "core_shield", "capacity", "scrap", "burn", "poison", "regen"]
+			var units = {"health": " HP", "shield": " shield", "core_health": " HP", "core_shield": " shield", "capacity": " slots", "scrap": " scrap", "burn": " damage/s", "poison": " damage/s", "regen": " HP/s", "projectiles": " projectiles"}
+			var flat = units.has(node.effect)
 			var scale_value = 1.0 if flat else 100.0
-			var suffix = "" if flat else "%"
+			var suffix = units[node.effect] if flat else "%"
 			text(inspector, "THIS TECHNOLOGY", 12, MUTED)
 			text(inspector, "+%s%s  →  +%s%s" % [str(snappedf(float(node.value) * rank_value * scale_value, 0.01)), suffix, str(snappedf(float(node.value) * mini(rank_value + 1, int(node.max_rank)) * scale_value, 0.01)), suffix], 23, accent)
 		elif node.effect in ["weapon", "structure"]:

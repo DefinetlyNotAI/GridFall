@@ -53,6 +53,8 @@ The operations menu shows your record and starting arsenal. Loadout separates th
 
 Combat hints prioritize the current phase, nearby pickups, and consumable counts. Numeric HUD readouts and contextual searches refresh at 10 Hz; meters, movement effects, and damage feedback continue drawing each frame. This reduces repeated UI work without changing combat simulation or the active enemy cap.
 
+Controls highlight the action awaiting a key and reject conflicting gameplay bindings; Escape cancels capture. Rebuilding bindings replaces existing mouse events. The editor preserves its tile palette on redraw, keeps copied tiles within their source layer, and clears selection, clipboard, undo and redo state when opening a different map. Research specifications distinguish flat units from percentages, including additional projectile counts.
+
 At wave clear, combat XP resolves every earned level. Each level grants an upgrade choice, with at least one choice guaranteed per cleared wave. Multiple choices resolve in sequence, respect current upgrade caps, and persist with the checkpoint. Older checkpoints retain their one pending choice. Explosive swarm and Elite invasion compositions now spend the same threat budget as ordinary enemies; Elite invasion also compensates its population budget for the 45% elite health increase.
 
 From wave 12, optional adaptive factions react to tower, explosive, close-range, or elemental damage. Planning explains the next faction. Adaptation changes composition weights, with blast/status resistance limited to 20%; it can be disabled in Settings for subsequent runs. Elites and a third boss phase add later-wave pressure. Twenty-five achievements track combat, engineering, survival, modes, and Ascension.

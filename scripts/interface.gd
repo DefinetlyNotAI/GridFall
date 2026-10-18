@@ -64,6 +64,9 @@ func setup(owner_game) -> void:
 		style.content_margin_top = 10
 		style.content_margin_bottom = 10
 		theme.set_stylebox(state, "Button", style)
+		var option_style = style.duplicate()
+		option_style.content_margin_right = 36
+		theme.set_stylebox(state, "OptionButton", option_style)
 	var focus_style = StyleBoxFlat.new()
 	focus_style.bg_color = Color(0, 0, 0, 0)
 	focus_style.border_color = Color("8ce5d2")
@@ -71,6 +74,7 @@ func setup(owner_game) -> void:
 	focus_style.set_corner_radius_all(2)
 	for type in ["OptionButton", "CheckButton", "CheckBox", "SpinBox", "LineEdit"]:
 		theme.set_stylebox("focus", type, focus_style.duplicate())
+		theme.set_color("font_color", type, Color("d5e2e8"))
 		theme.set_color("font_disabled_color", type, Color("71838a"))
 	var panel_style = StyleBoxFlat.new()
 	panel_style.bg_color = Color(0.035, 0.065, 0.085, 0.88)
@@ -81,6 +85,17 @@ func setup(owner_game) -> void:
 	panel_style.content_margin_top = 10
 	panel_style.content_margin_bottom = 10
 	theme.set_stylebox("panel", "PanelContainer", panel_style)
+	theme.set_stylebox("panel", "PopupMenu", panel_style.duplicate())
+	theme.set_stylebox("normal", "LineEdit", panel_style.duplicate())
+	theme.set_color("font_color", "PopupMenu", Color("d5e2e8"))
+	theme.set_color("font_hover_color", "PopupMenu", Color("ffffff"))
+	var menu_hover = StyleBoxFlat.new()
+	menu_hover.bg_color = Color("213e49")
+	theme.set_stylebox("hover", "PopupMenu", menu_hover)
+	var separator = StyleBoxLine.new()
+	separator.color = Color("304b57")
+	separator.thickness = 1
+	theme.set_stylebox("separator", "HSeparator", separator)
 	root = Control.new()
 	root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
