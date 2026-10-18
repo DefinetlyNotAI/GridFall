@@ -516,6 +516,7 @@ func show_upgrades() -> void:
 	var body = column(backdrop())
 	spacer(body)
 	label(body, "WAVE %d CLEARED" % game.wave, 36, Color("7fdfcc"))
+	label(body, "LEVEL %d / %d UPGRADE CHOICE%s REMAINING" % [game.level, game.upgrade_picks, "S" if game.upgrade_picks != 1 else ""], 16, Color("e3bb7d"))
 	label(body, "Choose a temporary upgrade for this run.", 20)
 	var choices = row(body, 20)
 	for i in game.upgrades.size():
@@ -525,7 +526,7 @@ func show_upgrades() -> void:
 		choices.add_child(frame)
 		var col = column(frame, 16)
 		label(col, "OPTION %02d / %s" % [i + 1, upgrade.get("rarity", "Common").to_upper()], 13, Color("e3bb7d"))
-		label(col, upgrade.name, 25)
+		label(col, "%s / %s" % [upgrade.get("icon", str(i + 1)), upgrade.name], 25)
 		label(col, upgrade.description, 19, Color("a7bfca"))
 		spacer(col)
 		if upgrade.has("cap"):

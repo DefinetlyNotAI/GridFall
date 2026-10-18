@@ -61,6 +61,7 @@ var drops: Array = []
 var next_uid = 0
 var event_name = ""
 var upgrades: Array = []
+var upgrade_picks = 0
 var xp = 0
 var level = 1
 var next_xp = 30
@@ -311,6 +312,7 @@ func start_run(run_mode: String = "endless", custom: Dictionary = {}, restoring:
 	kill_streak = 0
 	kill_timer = 0
 	reward_pending = false
+	upgrade_picks = 0
 	stats = {"wave": 1, "kills": 0, "bosses": 0, "damage": 0.0, "weapon_damage": 0.0, "tower_damage": 0.0, "ability_damage": 0.0, "built": 0, "earned": 0, "spent": 0, "streak": 0, "difficulty": 1.35 if mode == "challenge" else 1.0}
 	stats.merge({"difficulty": Rules.MODES[mode].difficulty, "mode": mode, "explosive_damage": 0.0, "elemental_damage": 0.0, "close_damage": 0.0, "core_damage_taken": 0.0, "loot_collected": 0, "weapon_usage": {}}, true)
 	if mode == "challenge":
@@ -910,6 +912,12 @@ func start_wave() -> bool:
 		if id != "boss" and catalog.enemies[id].min_wave <= wave:
 			pool.append(id)
 			if id == Rules.favored(faction_name): pool.append_array([id, id])
+	var scheduled_event = upcoming_event(wave)
+	if scheduled_event in ["Explosive swarm", "Elite invasion"]:
+		var replacement = "exploder" if scheduled_event == "Explosive swarm" else "tank"
+		var extra_weight = maxi(1, ceili(float(pool.size()) / (2 if scheduled_event == "Explosive swarm" else 3)))
+		for i in extra_weight: pool.append(replacement)
+		if scheduled_event == "Elite invasion": budget /= 1.45
 	var count = 0
 	while budget >= 7 and count < 600:
 		var id = pool[rng.randi_range(0, pool.size() - 1)]
@@ -921,23 +929,6 @@ func start_wave() -> bool:
 		budget -= catalog.enemies[id].cost
 		count += 1
 	reserve_budget(budget, pool)
-	var scheduled_event = upcoming_event(wave)
-	if scheduled_event == "Explosive swarm":
-		for i in spawn_queue.size():
-			if spawn_queue[i] != "boss" and i % 3 == 0: spawn_queue[i] = "exploder"
-	elif scheduled_event == "Elite invasion":
-		for i in spawn_queue.size():
-			if spawn_queue[i] != "boss" and i % 4 == 0: spawn_queue[i] = "tank"
-	var conversion = 3 if scheduled_event == "Explosive swarm" else (4 if scheduled_event == "Elite invasion" else 0)
-	if conversion > 0:
-		var converted = 0
-		var replacement = "exploder" if conversion == 3 else "tank"
-		for id in spawn_reserve:
-			if id == replacement: continue
-			var amount = int(spawn_reserve[id]) / conversion
-			spawn_reserve[id] = int(spawn_reserve[id]) - amount
-			converted += amount
-		spawn_reserve[replacement] = int(spawn_reserve.get(replacement, 0)) + converted
 	spawn_timer = 0.2
 	event_name = upcoming_event(wave)
 	visuals.set_weather("Acid rain" if challenge("acid_rain") else event_name, wave)
@@ -1043,12 +1034,21 @@ func finish_wave() -> void:
 	if not messages.is_empty():
 		visuals.rebuild()
 	ui.notify("Wave %d cleared · +%d scrap%s" % [wave, reward, "\n" + "\n".join(messages) if not messages.is_empty() else ""])
-	if xp >= next_xp:
+	var gained_levels = 0
+	while xp >= next_xp:
 		xp -= next_xp
 		level += 1
+		gained_levels += 1
 		next_xp = int(next_xp * 1.35 + 10)
 	state = "preparation"
 	reward_pending = true
+	upgrade_picks = maxi(1, gained_levels)
+	roll_upgrades()
+	ui.show_upgrades()
+	if eligible:
+		save_run()
+
+func roll_upgrades() -> void:
 	upgrades = []
 	for upgrade in catalog.upgrades:
 		if upgrade.effect == "medkit_reward" and consumables.medkit >= 99: continue
@@ -1061,9 +1061,6 @@ func finish_wave() -> void:
 		upgrades[i] = upgrades[j]
 		upgrades[j] = temp
 	upgrades = upgrades.slice(0, 3)
-	ui.show_upgrades()
-	if eligible:
-		save_run()
 
 func choose_upgrade(index: int) -> void:
 	if not reward_pending or index < 0 or index >= upgrades.size():
@@ -1086,8 +1083,13 @@ func choose_upgrade(index: int) -> void:
 		health = minf(max_health, health + applied)
 	if upgrade.effect == "shield":
 		shield += applied
-	reward_pending = false
-	ui.close_overlay()
+	upgrade_picks = maxi(0, upgrade_picks - 1)
+	reward_pending = upgrade_picks > 0
+	if reward_pending:
+		roll_upgrades()
+		ui.show_upgrades()
+	else:
+		ui.close_overlay()
 	if eligible:
 		save_run()
 
@@ -1810,6 +1812,7 @@ func save_run() -> bool:
 		ui.notify("Save an active standard run or a preparation checkpoint.")
 		return false
 	var record = {"version": 2, "id": run_id, "mode": mode, "world": world.map, "construction": world.construction, "applied": world.applied, "wave": wave, "completed": completed, "scrap": scrap, "health": health, "max_health": max_health, "shield": shield, "core": core_health, "max_core": max_core, "stats": stats, "bonuses": bonuses, "weapons": weapons, "backpack": backpack, "consumables": consumables, "active": active_weapon, "elapsed": elapsed, "position": [player.position.x, player.position.y, player.position.z], "yaw": player.rotation.y, "pitch": player.pitch, "rng": str(rng.state), "level": level, "xp": xp, "next_xp": next_xp, "reward_pending": reward_pending, "upgrades": upgrades, "capacity": capacity}
+	record.upgrade_picks = upgrade_picks
 	record.phase = phase
 	if phase == "wave": record.combat = CombatSave.snapshot(self)
 	record.drops = []
@@ -1894,6 +1897,7 @@ func load_run() -> void:
 	next_xp = int(r.next_xp)
 	reward_pending = r.reward_pending
 	upgrades = r.upgrades
+	upgrade_picks = int(r.get("upgrade_picks", 1 if reward_pending else 0))
 	capacity = int(r.capacity)
 	var timers = r.get("timers", [0, 0, 0, 0])
 	fire_timer = float(timers[0])
@@ -1976,6 +1980,9 @@ func valid_run(value: Variant) -> bool:
 		for key in value.stats.weapon_usage:
 			if not catalog.weapons.has(key) or not profile.numeric(value.stats.weapon_usage[key], 0, 1e15): return false
 	if not value.get("reward_pending") is bool: return false
+	var pending_picks = value.get("upgrade_picks", 1 if value.reward_pending else 0)
+	if not profile.numeric(pending_picks, 0, 1000000) or pending_picks != int(pending_picks): return false
+	if value.reward_pending != (pending_picks > 0): return false
 	if not value.get("timers", []) is Array or value.get("timers", [0, 0, 0, 0]).size() != 4: return false
 	for timer in value.get("timers", [0, 0, 0, 0]):
 		if not profile.numeric(timer, 0, 3600): return false
