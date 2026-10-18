@@ -692,7 +692,9 @@ func show_inventory() -> void:
 	for i in 2:
 		var item = game.weapons[i]
 		var slot = column(equipment, 4)
-		var weapon_slot = button(slot, "%d / %s%s\n%d / %d ammo" % [i + 1, game.item_name(item), " [ACTIVE]" if i == game.active_weapon else "", item.ammo, item.reserve], func(): game.switch_weapon(i); show_inventory())
+		slot.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		var ammunition = "Empty slot" if item.id == "" else ("Melee / no ammunition" if game.magazine_size(item) == 0 else "%d / %d loaded · %d reserve" % [item.ammo, game.magazine_size(item), item.reserve])
+		var weapon_slot = button(slot, "%d / %s%s\n%s" % [i + 1, game.item_name(item), " [ACTIVE]" if i == game.active_weapon else "", ammunition], func(): game.switch_weapon(i); show_inventory())
 		weapon_slot.set_drag_forwarding(Callable(), func(_position, data): return data is Dictionary and data.has("inventory") and int(data.inventory) < game.backpack.size() and game.catalog.weapons.has(game.backpack[int(data.inventory)].id), func(_position, data): game.inventory_action(int(data.inventory), "equip%d" % i))
 		if item.id != "": button(slot, "Unequip", func(): game.unequip_weapon(i))
 	var active_modules = game.modules(game.weapons[game.active_weapon])
@@ -742,21 +744,39 @@ func show_inventory() -> void:
 	detail.custom_minimum_size.x = 320
 	if inventory_selected >= 0 and inventory_selected < game.backpack.size():
 		var item = game.backpack[inventory_selected]
+		section(detail, "ITEM INSPECTOR")
 		label(detail, game.item_name(item), 25)
 		if game.catalog.weapons.has(item.id):
 			var definition = game.catalog.weapons[item.id]
 			var resolved = game.weapon_stats(item)
 			var current = game.weapon_stats(game.weapons[game.active_weapon])
-			label(detail, "Damage %.1f%s (%+.1f)\nRate %.1f shots/s\nMagazine %d\nRange %.1fm\nReload %.2fs\nRolled power ×%.2f" % [resolved.damage, " × %d pellets" % definition.pellets if definition.pellets > 1 else "", resolved.damage - current.damage, 1.0 / maxf(0.01, resolved.interval), resolved.magazine, resolved.range, resolved.reload, item.roll], 18)
+			readout(detail, "Damage", "%.1f%s" % [resolved.damage, " × %d pellets" % definition.pellets if definition.pellets > 1 else ""])
+			readout(detail, "Vs. active / per hit", "%+.1f" % (resolved.damage - current.damage))
+			readout(detail, "Attack rate", "%.2f / s" % (1.0 / maxf(0.01, resolved.interval)))
+			readout(detail, "Range", "%.1f m" % resolved.range)
+			if resolved.magazine > 0:
+				readout(detail, "Magazine", str(resolved.magazine))
+				readout(detail, "Reload", "%.2f s" % resolved.reload)
+			readout(detail, "Rolled power", "×%.2f" % item.roll)
 			if not item.get("mods", []).is_empty(): label(detail, "Modifiers: " + ", ".join(item.mods).capitalize(), 16, Color("e0c088"))
-			button(detail, "Equip primary", func(): game.inventory_action(inventory_selected, "equip0"))
-			button(detail, "Equip secondary", func(): game.inventory_action(inventory_selected, "equip1"))
+			section(detail, "EQUIPMENT")
+			button(detail, "Equip primary", func(): game.inventory_action(inventory_selected, "equip0"), not game.unlocked(definition))
+			button(detail, "Equip secondary", func(): game.inventory_action(inventory_selected, "equip1"), not game.unlocked(definition))
 		else:
 			label(detail, {"barrel": "+20% weapon damage", "optic": "60% less weapon spread", "magazine": "+30% magazine capacity", "grip": "25% less spread and reduced camera recoil", "elemental": "Hits burn enemies for 3 damage/s for 3 seconds", "armor": "+5% damage reduction", "shield_pack": "+30 shield"}.get(item.id, "Consumable"), 18)
-			button(detail, "Use / attach to active weapon", func(): game.inventory_action(inventory_selected, "use"))
-		button(detail, "Scrap · %d" % (15 + int(item.get("rarity", 0)) * 12), func(): game.inventory_action(inventory_selected, "scrap"))
-		button(detail, "Sell during Preparation", func(): game.inventory_action(inventory_selected, "sell"), game.state != "preparation")
-		button(detail, "Drop", func(): game.inventory_action(inventory_selected, "drop"))
+			var active = game.weapons[game.active_weapon]
+			var blocked = ""
+			if item.id in ["barrel", "optic", "magazine", "grip", "elemental"]:
+				if active.id == "": blocked = "Equip a weapon first"
+				elif active.id == "blade" and item.id != "elemental": blocked = "Incompatible with Shock Blade"
+			elif item.id == "armor" and game.bonus("armor") >= 0.65: blocked = "Armor at maximum"
+			elif item.id == "shield_pack" and game.shield >= game.bonus("shield") + 200: blocked = "Shield overcharge full"
+			button(detail, blocked if blocked != "" else "Use / attach to active weapon", func(): game.inventory_action(inventory_selected, "use"), blocked != "")
+		section(detail, "SALVAGE & TRANSFER")
+		var salvage = 15 + int(item.get("rarity", 0)) * 12
+		button(detail, "Scrap · %d scrap" % salvage, func(): game.inventory_action(inventory_selected, "scrap"))
+		button(detail, "Sell · %d scrap" % int(salvage * 1.5), func(): game.inventory_action(inventory_selected, "sell"), game.state != "preparation")
+		button(detail, "World loot limit reached" if game.drops.size() >= 80 else "Drop", func(): game.inventory_action(inventory_selected, "drop"), game.drops.size() >= 80)
 	else:
 		label(detail, "Select a backpack item.", 19, Color("92acba"))
 
