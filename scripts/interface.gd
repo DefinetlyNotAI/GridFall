@@ -7,6 +7,7 @@ const Progression = preload("res://scripts/progression.gd")
 const FieldGuide = preload("res://scripts/field_guide.gd")
 var progression = Progression.new()
 var field_guide = FieldGuide.new()
+var debug_modifier = false
 var game
 var root: Control
 var screen: Control
@@ -367,6 +368,7 @@ func show_selection() -> void:
 	section(settings, "WORLD")
 	var maps = OptionButton.new()
 	for world_name in game.World.LEVEL_NAMES: maps.add_item(world_name)
+	if game.selected_map >= game.World.LEVEL_NAMES.size(): game.selected_map = 0
 	maps.selected = game.selected_map
 	settings.add_child(maps)
 	section(settings, "OPERATION RULES")
@@ -388,6 +390,18 @@ func show_selection() -> void:
 	var begin = button(settings, "Begin run", func(): deploy_run(mode_ids[mode_picker.selected]))
 	var refresh_world = func():
 		var mode_id = mode_ids[mode_picker.selected]
+		var debug_world = game.selected_map == game.World.LEVEL_NAMES.size()
+		mode_picker.disabled = debug_world
+		if debug_world:
+			configure_rules.visible = false
+			begin.disabled = false
+			begin.text = "Enter spectator gallery"
+			seed_input.editable = false
+			rule_description.text = "Spectator only · Flight · No fighting, building or rewards."
+			game.world.load_map(game.world.debug_gallery())
+			world_description.text = game.world.map.description
+			game.visuals.rebuild()
+			return
 		configure_rules.visible = mode_id == "challenge"
 		begin.disabled = mode_id == "siege" and game.profile.data.best < 20
 		begin.text = "Reach wave 20 to unlock" if begin.disabled else ("Begin Sandbox" if mode_id == "sandbox" else "Begin run")
@@ -401,6 +415,12 @@ func show_selection() -> void:
 		world_description.text = "%s\n\n%d × %d tiles. Build on permitted ground away from the protected core and roads." % [game.world.map.description, game.world.map.width, game.world.map.height]
 		game.visuals.rebuild()
 	maps.item_selected.connect(func(index): game.selected_map = index; refresh_world.call())
+	maps.get_popup().about_to_popup.connect(func():
+		var reveal = debug_modifier or Input.is_key_pressed(KEY_CTRL) or Input.is_physical_key_pressed(KEY_CTRL)
+		if reveal and maps.item_count == game.World.LEVEL_NAMES.size(): maps.add_item("Debug tile gallery · Spectator")
+		elif not reveal and maps.item_count > game.World.LEVEL_NAMES.size():
+			maps.remove_item(game.World.LEVEL_NAMES.size())
+			if game.selected_map == game.World.LEVEL_NAMES.size(): game.selected_map = 0; maps.select(0); refresh_world.call())
 	mode_picker.item_selected.connect(func(_index): refresh_world.call())
 	seed_input.value_changed.connect(func(value): game.seed_value = int(value); refresh_world.call())
 	refresh_world.call()
@@ -414,6 +434,9 @@ func show_selection() -> void:
 	preview_panel.add_child(preview)
 
 func deploy_run(mode_id: String) -> void:
+	if game.selected_map == game.World.LEVEL_NAMES.size():
+		game.start_debug_world()
+		return
 	if mode_id == "sandbox" or game.read_run_checkpoint() == null:
 		game.start_run(mode_id)
 		return
@@ -541,6 +564,8 @@ func refresh_planning() -> void:
 		label(planning_detail, "%d scrap · %d HP · %.0fm range" % [game.build_cost(selected), selected.health, selected.range], 16, Color("92abb8"))
 		if selected.damage > 0:
 			label(planning_detail, "%.0f damage%s" % [selected.damage, " / %.2fs" % selected.interval if selected.interval > 0 else " per trigger"], 16)
+		if build_id in ["sentry", "laser", "cryo"]: label(planning_detail, "Ground or solid wall mount", 15, Color("92abb8"))
+		if selected.kind in ["wall", "trap"]: label(planning_detail, "Road placement permitted", 15, Color("92abb8"))
 		if game.scrap < game.build_cost(selected): label(planning_detail, "Need %d more scrap" % (game.build_cost(selected) - game.scrap), 15, Color("e3bb7d"))
 		for id in game.catalog.structures:
 			var definition = game.catalog.structures[id]
@@ -729,7 +754,9 @@ func show_inventory() -> void:
 	var active_modules = game.modules(game.weapons[game.active_weapon])
 	if not active_modules.is_empty():
 		var module_row = row(body, 8)
-		for slot in active_modules: button(module_row, "Detach " + str(slot).capitalize(), func(): game.detach_module(slot))
+		for slot in active_modules:
+			var rarity = int(game.weapons[game.active_weapon].get("attachment_rarities", {}).get(slot, 0))
+			button(module_row, "Detach %s · %s" % [str(slot).capitalize(), ["Common", "Uncommon", "Rare", "Epic", "Legendary"][rarity]], func(): game.detach_module(slot))
 	label(body, "Pulse [%s] · Medkits [%s]: %d · Grenades [%s]: %d\nArmor %.0f%% · Shield %.0f · Backpack %d/%d" % [key_name("ability"), key_name("heal"), game.consumables.medkit, key_name("grenade"), game.consumables.grenade, game.bonus("armor") * 100, game.shield, game.backpack.size(), game.capacity], 17)
 	var content = row(body, 24)
 	content.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -793,6 +820,10 @@ func show_inventory() -> void:
 			button(detail, "Equip secondary", func(): game.inventory_action(inventory_selected, "equip1"), not game.unlocked(definition))
 		else:
 			label(detail, game.catalog.get("attachments", {}).get(item.id, game.catalog.get("equipment", {}).get(item.id, {})).get("description", "Consumable"), 18)
+			if game.catalog.get("attachments", {}).has(item.id):
+				for stat_key in game.attachment_definition(item.id, int(item.get("rarity", 0))).stats:
+					var stat_value = float(game.attachment_definition(item.id, int(item.get("rarity", 0))).stats[stat_key])
+					readout(detail, str(stat_key).replace("_mult", "").replace("_", " ").capitalize(), "%+.1f%%" % ((stat_value - 1) * 100) if str(stat_key).ends_with("_mult") else "%.1f" % stat_value)
 			var active = game.weapons[game.active_weapon]
 			var blocked = ""
 			if item.id in ["barrel", "optic", "magazine", "grip", "elemental"]:
@@ -1090,7 +1121,7 @@ func show_settings() -> void:
 	key_col.add_theme_constant_override("h_separation", 12)
 	key_col.add_theme_constant_override("v_separation", 8)
 	settings_col.add_child(key_col)
-	for action in ["forward", "back", "left", "right", "jump", "sprint", "crouch", "grapple", "punch", "reload", "interact", "ability", "restoration", "inventory", "planning", "next_wave", "weapon1", "weapon2", "heal", "grenade", "pause"]:
+	for action in ["forward", "back", "left", "right", "jump", "sprint", "crouch", "grapple", "punch", "reload", "interact", "ability", "restoration", "inventory", "planning", "next_wave", "weapon1", "weapon2", "heal", "grenade", "unstuck", "pause"]:
 		var binding = button(key_col, binding_name(action) + " : " + ("Press a key…" if action == rebind_action else key_name(action)), func(): rebind_action = action; show_settings())
 		binding.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		binding.alignment = HORIZONTAL_ALIGNMENT_LEFT
@@ -1119,6 +1150,8 @@ func show_credits() -> void:
 	body.add_child(content)
 
 func _input(event: InputEvent) -> void:
+	if event is InputEventWithModifiers: debug_modifier = event.ctrl_pressed
+	if event is InputEventKey and (event.keycode == KEY_CTRL or event.physical_keycode == KEY_CTRL): debug_modifier = event.pressed
 	if overlay == "settings" and rebind_action != "" and event is InputEventKey and event.pressed and not event.echo:
 		if event.physical_keycode != KEY_ESCAPE:
 			for action in InputMap.get_actions():
@@ -1145,6 +1178,13 @@ func _process(delta: float) -> void:
 	hud_refresh = maxf(0, hud_refresh - delta)
 	if game.playing() and overlay == "" and hud_refresh <= 0:
 		hud_refresh = 0.1
+		if game.spectator:
+			hud_top.text = "DEBUG TILE GALLERY · SPECTATOR"
+			hud_left.text = "WASD fly · Space up · Ctrl down"
+			hud_right.text = "Shift faster · Esc menu"
+			boss_label.visible = false
+			hints.text = "No collision · No combat · No construction · No rewards"
+			return
 		boss_label.visible = false
 		hud.boss_ratio = -1
 		for uid in game.enemy_index.of_type("boss"):

@@ -219,7 +219,8 @@ func purchase(node: Dictionary) -> String:
 func award(id: String, stats: Dictionary, eligible: bool) -> int:
 	if id in data.awarded or not eligible:
 		return 0
-	var reward = int(minf(1e9, floor((3.0 * pow(minf(stats.get("reward_wave", stats.wave), 1e6), 1.35) + 0.04 * stats.kills + 12.0 * stats.bosses) * stats.difficulty)))
+	var survived = maxf(0, float(stats.get("cleared", stats.get("reward_wave", stats.wave))))
+	var reward = int(minf(1e9, floor((5.0 * pow(minf(survived, 1e6), 1.35) + 0.12 * stats.kills + 25.0 * stats.bosses) * stats.difficulty)))
 	var before = data.duplicate(true)
 	data.tp = minf(1e12, data.tp + reward)
 	data.awarded.append(id)

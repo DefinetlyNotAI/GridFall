@@ -34,6 +34,7 @@ var grapple_cooldown = 0.0
 var grapple_check = 0.0
 var punch_timer = 0.0
 var parry_timer = 0.0
+var unstuck_ready_at = 0.0
 
 const RUN_SPEED = 12.0
 const DASH_SPEED = 32.0
@@ -106,6 +107,12 @@ func refresh_gun() -> void:
 
 func _unhandled_input(event: InputEvent) -> void:
 	if not game.playing() or game.state == "paused":
+		return
+	if game.spectator:
+		if game.ui.overlay == "" and event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
+			rotate_y(-event.relative.x * float(game.profile.data.settings.sensitivity))
+			pitch = clampf(pitch - event.relative.y * float(game.profile.data.settings.sensitivity), -1.5, 1.5)
+			camera.rotation.x = pitch
 		return
 	if event.is_action_pressed("heal"):
 		game.consume("medkit")
@@ -190,7 +197,21 @@ func update_grapple(delta: float) -> void:
 	game.visuals.beam(camera.global_position + camera.global_basis.x * 0.2 - Vector3.UP * 0.15, grapple_anchor, Color("6bd8c6"))
 
 func recover_from_fall() -> void:
-	position = game.world.position(game.world.marker("player"), 0.1)
+	var origin = game.world.marker("player")
+	var destination = origin
+	var found = false
+	for radius in range(7):
+		for y in range(-radius, radius + 1):
+			for x in range(-radius, radius + 1):
+				var point = origin + Vector2i(x, y)
+				if not game.world.inside(point) or game.world.solid(point): continue
+				if game.world.map.layers.markers.get(game.world.cell_key(point), {}).get("type", "") == "objective": continue
+				destination = point
+				found = true
+				break
+			if found: break
+		if found: break
+	position = game.world.position(destination, 0.1 if found else 8.0)
 	velocity = Vector3.ZERO
 	dash_timer = 0
 	grapple_active = false
@@ -200,6 +221,14 @@ func recover_from_fall() -> void:
 	coyote_timer = 0
 	slam_jump_timer = 0
 	game.ui.notify("Recovered at the deployment point after falling outside the world.")
+
+func unstuck() -> void:
+	if game.elapsed < unstuck_ready_at:
+		game.ui.notify("Unstuck ready in %.0fs" % ceil(unstuck_ready_at - game.elapsed))
+		return
+	unstuck_ready_at = game.elapsed + 8
+	recover_from_fall()
+	game.ui.notify("Unstuck: returned to clear ground near deployment.")
 
 func slam_impact(fall_speed: float) -> void:
 	impact_flash = 1.0
@@ -235,6 +264,14 @@ func restore_movement(value: Dictionary) -> void:
 
 func _physics_process(delta: float) -> void:
 	if not game.playing() or game.state == "paused" or not is_instance_valid(camera):
+		return
+	if game.spectator:
+		if game.ui.overlay != "": return
+		var input = Input.get_vector("left", "right", "forward", "back") if not game.autoplay else Vector2.ZERO
+		var direction = camera.global_basis * Vector3(input.x, 0, input.y)
+		direction.y += float(Input.is_action_pressed("jump")) - float(Input.is_action_pressed("crouch"))
+		velocity = direction.limit_length(1) * (36.0 if Input.is_action_pressed("sprint") else 14.0)
+		position += velocity * delta
 		return
 	var enabled = game.ui.overlay == "" and not game.autoplay
 	var move = Input.get_vector("left", "right", "forward", "back") if enabled else Vector2.ZERO
@@ -283,8 +320,8 @@ func _physics_process(delta: float) -> void:
 		body_shape.position.y = 0.55 if crouched else 0.9
 	if crouch and not slide_active: speed *= 0.35
 	var tile_key = game.world.cell_key(game.world.cell(position))
-	var movement_cost = game.world.movement_cost(game.world.cell(position))
-	if game.world.map.layers.objects.get(tile_key, {}).get("type") == "slow": movement_cost = maxf(2, movement_cost)
+	var movement_cost = game.world.movement_cost(game.world.cell(position)) if position.y < 0.2 else 1.0
+	if position.y < 0.2 and game.world.map.layers.objects.get(tile_key, {}).get("type") == "slow": movement_cost = maxf(2, movement_cost)
 	speed /= movement_cost
 	if slide_active and not was_sliding:
 		horizontal = horizontal.normalized() * maxf(horizontal.length(), speed * 1.5)

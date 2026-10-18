@@ -81,6 +81,7 @@ static func valid(game, value: Variant) -> bool:
 			if modifier not in MODIFIERS: return false
 		if effects.has("origin") and not valid_vector(game, effects.origin): return false
 		if effects.has("elemental") and not effects.elemental is bool: return false
+		if effects.has("elemental_rarity") and (not game.profile.numeric(effects.elemental_rarity, 0, 4) or effects.elemental_rarity != int(effects.elemental_rarity)): return false
 	return true
 
 static func restore(game, value: Dictionary) -> void:

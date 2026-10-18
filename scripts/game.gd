@@ -13,6 +13,7 @@ var enemy_index = EnemyIndex.new()
 var wounded_index = EnemyIndex.new()
 var enemy_cursor = 0
 var enemy_batch = 512
+var spectator = false
 const TARGET_MODES = ["Nearest", "Strongest", "Weakest", "First", "Last", "Lowest health", "Highest threat"]
 var catalog: Dictionary
 var profile = Profile.new()
@@ -160,6 +161,7 @@ func configure_input() -> void:
 	keys.restoration = KEY_X
 	keys.grapple = KEY_F
 	keys.punch = KEY_V
+	keys.unstuck = KEY_U
 	for action in keys:
 		if not InputMap.has_action(action):
 			InputMap.add_action(action)
@@ -219,14 +221,32 @@ func challenge(id: String) -> bool:
 func scarce_ammo() -> bool:
 	return mode == "scavenger" or challenge("scarce_ammo")
 
-func placement(point: Vector2i) -> String:
-	var reason = world.placement(point)
+func placement(point: Vector2i, id: String = "") -> String:
+	if spectator: return "Spectator mode has no construction."
+	var reason = world.placement(point, id if id != "" else (ui.build_id if is_instance_valid(ui) else ""))
 	if reason != "": return reason
 	if challenge("pads_only") and world.map.layers.markers.get(world.cell_key(point), {}).get("type", "") not in ["pad", "tower_pad", "structure_pad"]: return "Challenge construction is limited to marked pads."
 	return ""
 
 func perk(id: String) -> int:
 	return int(run_perks.get(id, 0))
+
+func structure_position(key: String) -> Vector3:
+	var item: Dictionary = world.construction.get(key, {})
+	return world.position(world.point(key), world.mount_height(world.point(key), item.get("id", "")))
+
+func start_debug_world() -> void:
+	start_run("sandbox", world.debug_gallery())
+	if not playing(): return
+	spectator = true
+	eligible = false
+	player.collision_layer = 0
+	player.collision_mask = 0
+	player.position = world.position(Vector2i(15, 20), 12)
+	player.gun.visible = false
+	player.fist.visible = false
+	ui.close_overlay()
+	ui.notify("Tile gallery · Spectator · WASD fly · Space up · Ctrl down · Shift faster · Esc exit")
 
 func ascend() -> String:
 	if state != "menu" or read_run_checkpoint() != null: return "Finish or abandon your saved run before ascending."
@@ -341,6 +361,7 @@ func start_run(run_mode: String = "endless", custom: Dictionary = {}, restoring:
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE if autoplay else Input.MOUSE_MODE_CAPTURED
 
 func clear_run() -> void:
+	spectator = false
 	enemy_index.clear()
 	wounded_index.clear()
 	enemy_cursor = 0
@@ -426,12 +447,23 @@ func modifier_definitions(ids: Array) -> Array:
 func weapon_traits(item: Dictionary) -> Dictionary:
 	var definitions = modifier_definitions(item.get("mods", []))
 	for id in modules(item):
-		if catalog.get("attachments", {}).has(id): definitions.append(catalog.attachments[id])
+		if catalog.get("attachments", {}).has(id): definitions.append(attachment_definition(id, int(item.get("attachment_rarities", {}).get(id, 0))))
 	return combine_traits(definitions)
 
-func hit_traits(ids: Array, elemental: bool) -> Dictionary:
+func attachment_definition(id: String, rarity: int = 0) -> Dictionary:
+	var definition: Dictionary = catalog.attachments[id].duplicate(true)
+	var strength = 1.0 + clampi(rarity, 0, 4) * 0.25
+	for key in definition.stats:
+		var value = float(definition.stats[key])
+		if str(key).ends_with("_mult"):
+			var beneficial = (key in ["damage_mult", "magazine_mult"] and value > 1) or (key not in ["damage_mult", "magazine_mult"] and value < 1)
+			if beneficial: definition.stats[key] = (1 + (value - 1) * strength) if value > 1 else pow(value, strength)
+		elif not str(key).ends_with("_duration"): definition.stats[key] = value * strength
+	return definition
+
+func hit_traits(ids: Array, elemental: bool, elemental_rarity: int = 0) -> Dictionary:
 	var definitions = modifier_definitions(ids)
-	if elemental: definitions.append(catalog.attachments.elemental)
+	if elemental: definitions.append(attachment_definition("elemental", elemental_rarity))
 	return combine_traits(definitions)
 
 func attachment_compatible(id: String, item: Dictionary) -> bool:
@@ -443,7 +475,7 @@ func weapon_stats(item: Dictionary) -> Dictionary:
 	var definition = catalog.weapons[item.id]
 	var traits = weapon_traits(item)
 	return {
-		"damage": definition.damage * item.roll * (1 + bonus("damage")) * float(traits.get("damage_mult", 1.0)),
+		"damage": definition.damage * item.roll * (1 + bonus("damage")) * (1 + minf(1.5, maxf(0, level - 1) * 0.06)) * float(traits.get("damage_mult", 1.0)),
 		"interval": maxf(0.06, definition.interval / (1 + bonus("fire_rate")) * float(traits.get("interval_mult", 1.0))),
 		"magazine": magazine_size(item),
 		"reload": maxf(0.25, definition.reload / (1 + bonus("reload")) * float(traits.get("reload_mult", 1.0))) if definition.magazine > 0 else 0.0,
@@ -629,7 +661,7 @@ func launch(pos: Vector3, velocity: Vector3, damage: float, splash: float, sourc
 	if projectiles.size() >= 128:
 		return
 	var mesh = visuals.obtain_bolt(pos, color)
-	var effects = {"mods": weapons[active_weapon].get("mods", []).duplicate(), "elemental": modules(weapons[active_weapon]).has("elemental"), "origin": player.camera.global_position} if source == "weapon" else {}
+	var effects = {"mods": weapons[active_weapon].get("mods", []).duplicate(), "elemental": modules(weapons[active_weapon]).has("elemental"), "elemental_rarity": int(weapons[active_weapon].get("attachment_rarities", {}).get("elemental", 0)), "origin": player.camera.global_position} if source == "weapon" else {}
 	projectiles.append({"pos": pos, "velocity": velocity, "gravity": gravity, "damage": damage, "splash": splash, "source": source, "effects": effects, "life": life, "mesh": mesh, "color": color})
 
 func explosion(pos: Vector3, damage: float, radius: float, source: String, effects: Dictionary = {}) -> void:
@@ -703,7 +735,7 @@ func damage_enemy(uid: int, amount: float, source: String, origin: Vector3 = Vec
 		visuals.damage_number(enemy.node.position + Vector3.UP * 2.2, actual)
 		var modifiers: Array = effects.get("mods", weapons[active_weapon].get("mods", []))
 		var elemental = effects.get("elemental", modules(weapons[active_weapon]).has("elemental"))
-		var traits = hit_traits(modifiers, elemental)
+		var traits = hit_traits(modifiers, elemental, int(effects.get("elemental_rarity", weapons[active_weapon].get("attachment_rarities", {}).get("elemental", 0))))
 		if bonus("burn") > 0 or traits.get("burn_dps", 0) > 0:
 			var burn = (bonus("burn") + float(traits.get("burn_dps", 0))) * (1 - enemy.status_resist)
 			if burn >= enemy.burn:
@@ -735,7 +767,7 @@ func damage_enemy(uid: int, amount: float, source: String, origin: Vector3 = Vec
 		return
 	stats.kills += 1
 	if source in ["weapon", "ability"] and player.position.distance_squared_to(enemy.node.position) <= 25 and sight(player.camera.global_position, enemy.node.position + Vector3.UP):
-		health = minf(max_health, health + 3)
+		health = minf(max_health, health + 3 + max_health * 0.02)
 	if enemy.type == "boss":
 		stats.bosses += 1
 	kill_streak += 1
@@ -808,7 +840,7 @@ func build(p: Vector2i, id: String, facing: int = 0) -> String:
 	if marker == "structure_pad" and definition.kind == "tower": return "This pad is reserved for non-tower structures."
 	if not unlocked(definition):
 		return "Research required: " + definition.tech.replace("_", " ")
-	var reason = placement(p)
+	var reason = placement(p, id)
 	if reason != "":
 		return reason
 	if player != null and world.cell(player.position) == p:
@@ -893,10 +925,10 @@ func manage_structure(key: String, action: String) -> String:
 
 func move_structure(key: String, destination: Vector2i) -> String:
 	if state != "preparation" or not world.construction.has(key): return "Moving structures requires Preparation."
-	var reason = placement(destination)
+	var item = world.construction[key]
+	var reason = placement(destination, item.id)
 	if reason != "": return reason
 	if world.cell(player.position) == destination: return "Move away from the destination tile."
-	var item = world.construction[key]
 	var marker = world.map.layers.markers.get(world.cell_key(destination), {}).get("type", "")
 	if marker == "tower_pad" and item.kind != "tower": return "This pad permits attack towers only."
 	if marker == "structure_pad" and item.kind == "tower": return "This pad is reserved for non-tower structures."
@@ -918,7 +950,7 @@ func replace_structure(key: String, id: String) -> String:
 	if world.cell(player.position) == p: return "Move away from the structure before replacing it."
 	var old = world.construction[key]
 	world.construction.erase(key)
-	var reason = world.placement(p)
+	var reason = world.placement(p, id)
 	world.construction[key] = old
 	if reason != "": return reason
 	var refund = int(old.invested * 0.65 * maxf(0.2, old.health / old.max_health))
@@ -964,7 +996,7 @@ func refill_spawns() -> void:
 	if remaining == 0: spawn_reserve.clear()
 
 func start_wave() -> bool:
-	if state != "preparation" or reward_pending:
+	if spectator or state != "preparation" or reward_pending:
 		return false
 	var checkpoint_ok = save_run() if eligible else true
 	wave += 1
@@ -1128,6 +1160,9 @@ func add_xp(amount: int) -> void:
 		xp -= next_xp
 		level += 1
 		gained += 1
+		if level <= 31:
+			max_health += 6
+			health = minf(max_health, health + 6)
 		next_xp = mini(250000, int(next_xp * 1.24 + 8))
 	pending_levels += gained
 	if gained > 0: ui.notify("Level %d · %d upgrade choice%s at wave clear" % [level, pending_levels, "s" if pending_levels != 1 else ""])
@@ -1394,9 +1429,13 @@ func inventory_action(index: int, action: String) -> void:
 				return
 			var equipped = modules(weapons[active_weapon])
 			var old = equipped.get(item.id, "")
+			if not weapons[active_weapon].has("attachment_rarities"): weapons[active_weapon].attachment_rarities = {}
+			var rarities: Dictionary = weapons[active_weapon].attachment_rarities
+			var old_rarity = int(rarities.get(item.id, 0))
 			equipped[item.id] = item.id
+			rarities[item.id] = int(item.get("rarity", 0))
 			backpack.remove_at(index)
-			if old != "": backpack.append({"id": old, "count": 1, "rarity": 0})
+			if old != "": backpack.append({"id": old, "count": 1, "rarity": old_rarity})
 		elif item.id == "armor":
 			if bonus("armor") >= 0.65:
 				ui.notify("Armor is already at its 65% limit.")
@@ -1443,7 +1482,8 @@ func detach_module(slot: String) -> void:
 	if backpack.size() >= capacity:
 		ui.notify("Backpack full.")
 		return
-	backpack.append({"id": equipped[slot], "count": 1, "rarity": 0})
+	backpack.append({"id": equipped[slot], "count": 1, "rarity": int(item.get("attachment_rarities", {}).get(slot, 0))})
+	if item.has("attachment_rarities"): item.attachment_rarities.erase(slot)
 	equipped.erase(slot)
 	var excess = maxi(0, int(item.ammo) - magazine_size(item))
 	item.ammo -= excess
@@ -1493,7 +1533,7 @@ func buy(id: String) -> void:
 
 func _unhandled_input(event: InputEvent) -> void:
 	if not is_instance_valid(ui): return
-	if event is InputEventKey and event.pressed and event.physical_keycode == KEY_F4 and mode == "sandbox" and state in ["preparation", "wave"] and not reward_pending:
+	if event is InputEventKey and event.pressed and event.physical_keycode == KEY_F4 and mode == "sandbox" and not spectator and state in ["preparation", "wave"] and not reward_pending:
 		if ui.overlay == "sandbox": ui.close_overlay()
 		else: ui.show_sandbox()
 	if event.is_action_pressed("debug"):
@@ -1513,7 +1553,8 @@ func _unhandled_input(event: InputEvent) -> void:
 		elif state == "editor":
 			ui.editor.authoring = world.map.duplicate(true)
 			ui.show_menu()
-	if playing() and state != "paused":
+	if playing() and state != "paused" and not spectator:
+		if event.is_action_pressed("unstuck") and ui.overlay == "": player.unstuck()
 		if event.is_action_pressed("inventory") and not reward_pending:
 			if ui.overlay == "inventory": ui.close_overlay()
 			else: ui.show_inventory()
@@ -1531,6 +1572,7 @@ func _physics_process(delta: float) -> void:
 		return
 	var start = Time.get_ticks_usec()
 	elapsed += delta
+	if spectator: return
 	fire_timer = maxf(0, fire_timer - delta)
 	ability_timer = maxf(0, ability_timer - delta)
 	restoration_timer = maxf(0, restoration_timer - delta)
@@ -1538,7 +1580,7 @@ func _physics_process(delta: float) -> void:
 	kill_timer -= delta
 	if kill_timer <= 0: kill_streak = 0
 	if hurt_timer <= 0:
-		health = minf(max_health, health + bonus("regen") * delta)
+		health = minf(max_health, health + (bonus("regen") + minf(2.0, maxf(0, level - 1) * 0.1)) * delta)
 		shield = minf(bonus("shield"), shield + delta * 2) if shield < bonus("shield") else shield
 	if reload_timer > 0:
 		reload_timer -= delta
@@ -1666,7 +1708,7 @@ func update_enemies(frame_delta: float) -> void:
 		var target = objective_pos
 		var target_kind = "core"
 		var target_key = ""
-		if enemy.type in ["runner", "boss", "spitter", "exploder"] and pos.distance_to(player.position) < (18 if enemy.type == "runner" else 12):
+		if enemy.type in ["runner", "exploder"] and pos.distance_to(player.position) < (18 if enemy.type == "runner" else 12):
 			if sight(pos + Vector3.UP, player.position + Vector3.UP):
 				target = player.position
 				target_kind = "player"
@@ -1700,7 +1742,8 @@ func update_enemies(frame_delta: float) -> void:
 		# This avoids rebuilding a whole-world field for every player tile crossed.
 		if (target_distance > reach or not can_see) and not (target_kind == "player" and world.complete_floor):
 			var cell = world.cell(pos)
-			var next = world.next_toward(cell, world.cell(target))
+			var follows_road = target_kind == "core" and enemy.type not in ["runner", "exploder", "breaker", "saboteur"]
+			var next = world.next_cell(cell) if follows_road else world.next_toward(cell, world.cell(target))
 			destination = world.position(next)
 			var next_key = world.cell_key(next)
 			if world.construction.has(next_key) and world.construction[next_key].kind != "trap":
@@ -1772,6 +1815,9 @@ func update_enemies(frame_delta: float) -> void:
 			speed /= world.movement_cost(current)
 			node.velocity = steering.limit_length(1) * speed
 			enemy.steering = steering.limit_length(1)
+			if target_kind == "core" and enemy.type not in ["runner", "exploder", "breaker", "saboteur"]:
+				var distance_to_waypoint = Vector2(destination.x - pos.x, destination.z - pos.z).length()
+				node.velocity = node.velocity.limit_length(distance_to_waypoint / maxf(delta, 0.001))
 			node.velocity.y = -2
 		var movement_start = Time.get_ticks_usec()
 		move_enemy(node, delta)
@@ -1794,7 +1840,7 @@ func update_towers(delta: float) -> void:
 		var tower = world.construction[key]
 		tower.cooldown = maxf(0, tower.cooldown - delta)
 		if tower.cooldown > 0: continue
-		var pos = world.position(world.point(key), 2.1)
+		var pos = structure_position(key) + Vector3.UP * 2.1
 		if tower.kind == "repair" and repairs_allowed():
 			tower.cooldown = 1
 			for other_key in world.construction:
@@ -1911,6 +1957,7 @@ func update_towers(delta: float) -> void:
 			if visuals.structures.has(key):
 				var head = visuals.structures[key].get_node_or_null("Head")
 				if head and head.global_position.distance_squared_to(target_pos) > 0.01:
+					head.set_meta("aim_lock", 0.8)
 					head.look_at(Vector3(target_pos.x, head.global_position.y, target_pos.z))
 
 func update_projectiles(delta: float) -> void:
@@ -1968,6 +2015,7 @@ func save_run() -> bool:
 		return false
 	var record = {"version": 2, "id": run_id, "mode": mode, "world": world.map, "construction": world.construction, "applied": world.applied, "wave": wave, "completed": completed, "scrap": scrap, "health": health, "max_health": max_health, "shield": shield, "core": core_health, "max_core": max_core, "stats": stats, "bonuses": bonuses, "weapons": weapons, "backpack": backpack, "consumables": consumables, "active": active_weapon, "elapsed": elapsed, "position": [player.position.x, player.position.y, player.position.z], "yaw": player.rotation.y, "pitch": player.pitch, "rng": str(rng.state), "level": level, "xp": xp, "next_xp": next_xp, "reward_pending": reward_pending, "upgrades": upgrades, "capacity": capacity}
 	record.upgrade_picks = upgrade_picks
+	record.operator_growth = true
 	record.pending_levels = pending_levels
 	record.phase = phase
 	if phase == "wave": record.combat = CombatSave.snapshot(self)
@@ -2049,6 +2097,10 @@ func load_run() -> void:
 	rng.seed = seed_value
 	rng.state = int(r.rng)
 	level = int(r.level)
+	if not r.get("operator_growth", false):
+		var earned_health = mini(30, maxi(0, level - 1)) * 6
+		max_health += earned_health
+		health += earned_health
 	xp = int(r.xp)
 	next_xp = int(r.next_xp)
 	pending_levels = int(r.get("pending_levels", 0))
@@ -2093,6 +2145,7 @@ func load_run() -> void:
 
 func valid_run(value: Variant) -> bool:
 	if not value is Dictionary or (value.get("version") != 1 and value.get("version") != 2): return false
+	if value.has("operator_growth") and not value.operator_growth is bool: return false
 	for key in ["world", "construction", "stats", "bonuses", "consumables"]:
 		if not value.get(key) is Dictionary: return false
 	for key in ["weapons", "backpack", "applied", "position", "upgrades"]:
@@ -2178,9 +2231,14 @@ func valid_run(value: Variant) -> bool:
 			if not profile.numeric(number, -10, 1000): return false
 	for key in value.construction:
 		if not key is String or key.split(",").size() != 2: return false
-		if not key.split(",")[0].is_valid_int() or not key.split(",")[1].is_valid_int() or saved_world.placement(saved_world.point(key)) != "": return false
+		if not key.split(",")[0].is_valid_int() or not key.split(",")[1].is_valid_int(): return false
 		var item = value.construction[key]
 		if not item is Dictionary or not catalog.structures.has(item.get("id", "")): return false
+		var saved_point = saved_world.point(key)
+		var placement_reason = saved_world.placement(saved_point, item.id)
+		if placement_reason != "":
+			var legacy_site = key in value.world.build and not saved_world.fixed_solid(saved_point) and not value.world.layers.objects.has(key) and not value.world.layers.markers.has(key)
+			if not legacy_site: return false
 		for field in ["health", "max_health", "level", "target_mode", "invested", "focus", "damage", "interval", "range", "splash", "slow", "cost"]:
 			if not profile.numeric(item.get(field), 0, 1e12): return false
 		if not profile.numeric(item.get("cooldown"), -1e12, 1e12): return false
@@ -2206,6 +2264,9 @@ func valid_item(item: Variant, allow_empty: bool = false, allow_consumables: boo
 		if item.get("attachment", "") not in ["", "barrel", "optic"] or not item.get("attachments", {}) is Dictionary or not item.get("mods", []) is Array or item.get("mods", []).size() > 3: return false
 		for slot in item.get("attachments", {}):
 			if slot not in ["barrel", "optic", "magazine", "grip", "elemental"] or item.attachments[slot] != slot: return false
+		if not item.get("attachment_rarities", {}) is Dictionary: return false
+		for slot in item.get("attachment_rarities", {}):
+			if not item.get("attachments", {}).has(slot) or not profile.numeric(item.attachment_rarities[slot], 0, 4) or item.attachment_rarities[slot] != int(item.attachment_rarities[slot]): return false
 		for modifier in item.get("mods", []):
 			if modifier not in ["stabilized", "overclocked", "incendiary", "frost", "vampiric", "volatile", "ricochet"]: return false
 		return true
@@ -2227,7 +2288,7 @@ func benchmark_setup() -> void:
 	var cells: Array = []
 	for key in world.map.build:
 		var p = world.point(key)
-		if placement(p) == "" and p != world.cell(player.position) and p != Vector2i(12, 10): cells.append(p)
+		if placement(p, "sentry") == "" and p != world.cell(player.position) and p != Vector2i(12, 10): cells.append(p)
 	cells.sort_custom(func(a, b): return a.distance_squared_to(world.marker("objective")) < b.distance_squared_to(world.marker("objective")))
 	for p in cells.slice(0, 8):
 		var result = build(p, "sentry")

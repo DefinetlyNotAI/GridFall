@@ -8,6 +8,9 @@ var boss_ratio = -1.0
 func _draw() -> void:
 	if game == null or not game.playing() or game.ui.overlay != "": return
 	var center = size * 0.5
+	if game.spectator:
+		draw_circle(center, 1.5, Color("c8d7dc"))
+		return
 	var player = game.player
 	var movement_effects = bool(game.profile.data.settings.get("movement_effects", true))
 	if movement_effects:

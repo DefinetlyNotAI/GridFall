@@ -48,6 +48,7 @@ var uniform_cost = 1.0
 var nav_keys = PackedStringArray()
 var nav_walkable = PackedByteArray()
 var nav_costs = PackedFloat32Array()
+var nav_road_costs = PackedFloat32Array()
 
 func default_rules() -> Dictionary:
 	var result: Dictionary = {}
@@ -98,6 +99,21 @@ func inside(p: Vector2i) -> bool:
 func preset(index: int = 0, seed_value: int = 104729) -> Dictionary:
 	index = posmod(index, LEVEL_NAMES.size())
 	return Levels.authored(self, index, seed_value)
+
+func debug_gallery() -> Dictionary:
+	var layers = {"ground": {}, "structure": {}, "height": {}, "markers": {}, "objects": {}, "decoration": {}, "lighting": {}}
+	for y in 27:
+		for x in 33: layers.ground[cell_key(Vector2i(x, y))] = {"type": "concrete"}
+	var groups = {"ground": TERRAIN, "structure": WALLS, "markers": MARKERS, "objects": HAZARDS, "decoration": ["crate", "vegetation", "debris", "machinery", "pipe", "light"], "height": ["ceiling", "elevation"], "lighting": ["light"]}
+	var index = 0
+	var pads: Array = []
+	for layer in groups:
+		for kind in groups[layer]:
+			var key = cell_key(Vector2i(2 + (index % 10) * 3, 2 + (index / 10) * 3))
+			layers[layer][key] = {"type": kind}
+			if layer == "markers" and kind in ["pad", "tower_pad", "structure_pad"]: pads.append(key)
+			index += 1
+	return {"version": 2, "id": "debug_gallery", "name": "Debug tile gallery", "description": "Spectator gallery: one sample of each tile, arranged on a spaced grid.", "author": "GRIDFALL", "width": 33, "height": 27, "seed": 104729, "theme": 0, "rules": default_rules(), "layers": layers, "build": pads, "events": []}
 
 func generated(seed_value: int, width: int = 33, height: int = 33, style: int = 0) -> Dictionary:
 	var map_width = clampi(width, 8, 96)
@@ -260,6 +276,8 @@ func remove_structure(key: String) -> void:
 	var tile: Dictionary = map.layers.structure.get(key, {})
 	if not map.layers.structure.erase(key): return
 	var p = point(key)
+	if construction.has(key) and map.layers.ground.get(key, {}).get("type", "") not in ["road", "water"] and key not in map.build:
+		map.build.append(key)
 	var index = p.y * int(map.width) + p.x
 	var walkable = 1 if not fixed_solid(p) or can_destroy(p) else 0
 	# Breakable cover is already traversable in enemy route planning.
@@ -272,6 +290,8 @@ func remove_structure(key: String) -> void:
 func refresh_slopes() -> void:
 	flat_floor = complete_floor
 	sloped_cells.clear()
+	for tile in map.layers.ground.values():
+		if tile.get("type", "") == "water": flat_floor = false; break
 	if not complete_floor: return
 	for key in map.layers.structure:
 		var tile = map.layers.structure[key]
@@ -292,11 +312,14 @@ func rebuild_flow() -> void:
 	nav_keys.resize(total)
 	nav_walkable.resize(total)
 	nav_costs.resize(total)
+	nav_road_costs.resize(total)
+	var objective_key = cell_key(marker("objective"))
 	for index in total:
 		var p = Vector2i(index % int(map.width), index / int(map.width))
 		nav_keys[index] = cell_key(p)
 		nav_walkable[index] = 1 if not fixed_solid(p) or can_destroy(p) else 0
 		nav_costs[index] = movement_cost(p)
+		nav_road_costs[index] = nav_costs[index] + (10000.0 if map.layers.ground.get(nav_keys[index], {}).get("type", "") != "road" and nav_keys[index] != objective_key else 0.0)
 	uniform_cost = -1.0
 	for tile in map.layers.ground.values():
 		var cost = float(tile.get("movement_cost", 2.0 if tile.type == "water" else 1.0))
@@ -307,12 +330,16 @@ func rebuild_flow() -> void:
 	complete_floor = map.layers.ground.size() == int(map.width) * int(map.height)
 	refresh_slopes()
 	var target = marker("objective")
-	flow = navigation_field(target)
+	flow = navigation_field(target, true)
 	nav_ms = (Time.get_ticks_usec() - start) / 1000.0
 
-func navigation_field(target: Vector2i) -> Dictionary:
+func route_cost(p: Vector2i, roads: bool = false) -> float:
+	var index = p.y * int(map.width) + p.x
+	return nav_road_costs[index] if roads else nav_costs[index]
+
+func navigation_field(target: Vector2i, roads: bool = false) -> Dictionary:
 	if not inside(target): return {}
-	var target_key = cell_key(target)
+	var target_key = cell_key(target) + (":roads" if roads else "")
 	if fields.has(target_key): return fields[target_key]
 	var width = int(map.width)
 	var total = nav_keys.size()
@@ -322,7 +349,7 @@ func navigation_field(target: Vector2i) -> Dictionary:
 	distances.fill(INF)
 	distances[start] = 0
 	var result: Dictionary = {}
-	if uniform_cost > 0:
+	if uniform_cost > 0 and not roads:
 		var frontier: Array[int] = [start]
 		var head = 0
 		while head < frontier.size():
@@ -342,7 +369,7 @@ func navigation_field(target: Vector2i) -> Dictionary:
 			if current_cost > distances[current]: continue
 			for next in [current - width, current + width, current - 1 if current % width > 0 else -1, current + 1 if current % width < width - 1 else -1]:
 				if next < 0 or next >= total or nav_walkable[next] == 0: continue
-				var next_cost = current_cost + nav_costs[current]
+				var next_cost = current_cost + (nav_road_costs[current] if roads else nav_costs[current])
 				if next_cost >= distances[next]: continue
 				distances[next] = next_cost
 				_heap_push(queue, [next, next_cost])
@@ -384,10 +411,10 @@ func _heap_pop(heap: Array) -> Array:
 	return first
 
 func next_cell(p: Vector2i) -> Vector2i:
-	return next_toward(p, marker("objective"))
+	return next_toward(p, marker("objective"), true)
 
-func next_toward(p: Vector2i, target: Vector2i) -> Vector2i:
-	var field = navigation_field(target)
+func next_toward(p: Vector2i, target: Vector2i, roads: bool = false) -> Vector2i:
+	var field = navigation_field(target, roads)
 	var best = p
 	var remaining = float(field.get(cell_key(p), INF))
 	var score = INF
@@ -395,22 +422,36 @@ func next_toward(p: Vector2i, target: Vector2i) -> Vector2i:
 		var q: Vector2i = p + d
 		if not inside(q) or not field.has(cell_key(q)):
 			continue
-		var cost = movement_cost(q) + float(field[cell_key(q)])
+		var cost = route_cost(q, roads) + float(field[cell_key(q)])
 		if cost < score:
 			score = cost
 			best = q
 	return best if score <= remaining + 0.000001 else p
 
-func placement(p: Vector2i) -> String:
+func mount_height(p: Vector2i, id: String) -> float:
+	if id not in ["sentry", "laser", "cryo"]: return 0.0
+	var tile: Dictionary = map.layers.structure.get(cell_key(p), {})
+	if tile.get("type", "") not in ["brick", "concrete_wall", "steel", "reinforced", "permanent"] or tile.get("locked", false): return 0.0
+	return float(tile.get("elevation", 0)) + float(tile.get("height", WALL_DEFS[tile.type].height))
+
+func placement(p: Vector2i, id: String = "") -> String:
 	var key = cell_key(p)
 	if not inside(p):
 		return "Outside world boundaries."
-	if not key in map.build or fixed_solid(p):
+	if map.layers.ground.get(key, {}).get("type", "") == "water": return "Water cannot support construction."
+	var mount = mount_height(p, id) > 0
+	var road_defense = map.layers.ground.get(key, {}).get("type", "") == "road" and id in ["wall", "barricade", "spikes", "slow", "mine"]
+	if not mount and not road_defense and (not key in map.build or fixed_solid(p)):
 		return "Fixed world, protected route, or locked region."
+	if not mount and map.layers.ground.get(key, {}).get("type", "") in ["road", "water"] and not road_defense:
+		return "Roads permit barricades and traps only; water cannot support construction."
+	if not mount and map.layers.structure.get(key, {}).get("type", "") in ["ramp", "stairs", "platform"]:
+		return "Keep movement tiles clear."
+	if road_defense and fixed_solid(p): return "A fixed object blocks this road tile."
 	if (map.layers.markers.has(key) and map.layers.markers[key].type not in ["pad", "tower_pad", "structure_pad"]) or map.layers.objects.has(key):
 		return "This tile is reserved for a world object."
 	for event in map.events:
-		if event.id not in applied and key in event.get("remove", []):
+		if event.id not in applied and (key in event.get("remove", []) or key in event.get("build", [])):
 			return "Reserved for a scheduled world change."
 	if construction.has(key):
 		return "A structure already occupies this tile."
