@@ -142,7 +142,9 @@ func update_palette() -> void:
 		"height": options = ["ceiling", "elevation"]
 		"decoration": options = ["light", "vegetation", "crate", "debris", "pipe", "machinery"]
 		"lighting": options = ["light"]
-	for option in options: palette.add_item(option)
+	for option in options:
+		palette.add_icon_item(ui.Grid.TileArt.icon(option), option)
+		palette.get_popup().set_item_tooltip(palette.item_count - 1, ui.field_guide.tile_detail(option))
 	var selected_index = options.find(tile_type)
 	if selected_index < 0:
 		selected_index = 0

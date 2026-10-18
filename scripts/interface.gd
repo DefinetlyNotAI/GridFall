@@ -4,7 +4,9 @@ const Grid = preload("res://scripts/grid_canvas.gd")
 const Hud = preload("res://scripts/hud.gd")
 const Editor = preload("res://scripts/editor.gd")
 const Progression = preload("res://scripts/progression.gd")
+const FieldGuide = preload("res://scripts/field_guide.gd")
 var progression = Progression.new()
+var field_guide = FieldGuide.new()
 var game
 var root: Control
 var screen: Control
@@ -44,8 +46,14 @@ func setup(owner_game) -> void:
 	game = owner_game
 	progression.ui = self
 	progression.game = game
+	field_guide.ui = self
+	field_guide.game = game
 	var theme = Theme.new()
 	theme.default_font_size = 18
+	for part in ["background", "fill"]:
+		var meter_style = StyleBoxFlat.new()
+		meter_style.bg_color = Color("243e4b") if part == "background" else Color("6bbdaf")
+		theme.set_stylebox(part, "ProgressBar", meter_style)
 	theme.set_color("font_color", "Label", Color("d5e2e8"))
 	theme.set_color("font_color", "Button", Color("d5e2e8"))
 	theme.set_color("font_hover_color", "Button", Color("ffffff"))
@@ -326,6 +334,8 @@ func show_menu() -> void:
 	section(left, "TOOLS & RECORDS")
 	button(left, "Sandbox map editor", func(): editor.open())
 	button(left, "Statistics", show_statistics)
+	button(left, "Achievements", show_achievements)
+	button(left, "Field guide", show_wiki)
 	button(left, "Settings", show_settings)
 	button(left, "Quit", func(): game.quit_game())
 	var right = column(layout, 18)
@@ -585,6 +595,7 @@ func show_upgrades() -> void:
 	label(body, "WAVE %d CLEARED" % game.wave, 36, Color("7fdfcc"))
 	label(body, "LEVEL %d / %d UPGRADE CHOICE%s REMAINING" % [game.level, game.upgrade_picks, "S" if game.upgrade_picks != 1 else ""], 16, Color("e3bb7d"))
 	label(body, "Choose a temporary upgrade for this run.", 20)
+	label(body, "XP %d / %d toward level %d" % [game.xp, game.next_xp, game.level + 1], 16, Color("92abb8"))
 	var choices = row(body, 20)
 	for i in game.upgrades.size():
 		var upgrade = game.upgrades[i]
@@ -595,6 +606,7 @@ func show_upgrades() -> void:
 		label(col, "OPTION %02d / %s" % [i + 1, upgrade.get("rarity", "Common").to_upper()], 13, Color("e3bb7d"))
 		label(col, "%s / %s" % [upgrade.get("icon", str(i + 1)), upgrade.name], 25)
 		label(col, upgrade.description, 19, Color("a7bfca"))
+		if upgrade.has("requires_effects"): label(col, "SYNERGY / " + ", ".join(upgrade.requires_effects).to_upper(), 14, Color("7ed9cb"))
 		spacer(col)
 		if upgrade.has("cap"):
 			var unit = {"health": "HP", "shield": "HP", "regen": "HP/s", "burn": "damage/s"}.get(upgrade.effect, "%")
@@ -775,17 +787,17 @@ func show_inventory() -> void:
 				readout(detail, "Magazine", str(resolved.magazine))
 				readout(detail, "Reload", "%.2f s" % resolved.reload)
 			readout(detail, "Rolled power", "×%.2f" % item.roll)
-			if not item.get("mods", []).is_empty(): label(detail, "Modifiers: " + ", ".join(item.mods).capitalize(), 16, Color("e0c088"))
+			for modifier in game.modifier_definitions(item.get("mods", [])): label(detail, "%s: %s" % [modifier.name, modifier.description], 16, Color("e0c088"))
 			section(detail, "EQUIPMENT")
 			button(detail, "Equip primary", func(): game.inventory_action(inventory_selected, "equip0"), not game.unlocked(definition))
 			button(detail, "Equip secondary", func(): game.inventory_action(inventory_selected, "equip1"), not game.unlocked(definition))
 		else:
-			label(detail, {"barrel": "+20% weapon damage", "optic": "60% less weapon spread", "magazine": "+30% magazine capacity", "grip": "25% less spread and reduced camera recoil", "elemental": "Hits burn enemies for 3 damage/s for 3 seconds", "armor": "+5% damage reduction", "shield_pack": "+30 shield"}.get(item.id, "Consumable"), 18)
+			label(detail, game.catalog.get("attachments", {}).get(item.id, game.catalog.get("equipment", {}).get(item.id, {})).get("description", "Consumable"), 18)
 			var active = game.weapons[game.active_weapon]
 			var blocked = ""
 			if item.id in ["barrel", "optic", "magazine", "grip", "elemental"]:
 				if active.id == "": blocked = "Equip a weapon first"
-				elif active.id == "blade" and item.id != "elemental": blocked = "Incompatible with Shock Blade"
+				elif not game.attachment_compatible(item.id, active): blocked = "Incompatible with active weapon"
 			elif item.id == "armor" and game.bonus("armor") >= 0.65: blocked = "Armor at maximum"
 			elif item.id == "shield_pack" and game.shield >= game.bonus("shield") + 200: blocked = "Shield overcharge full"
 			button(detail, blocked if blocked != "" else "Use / attach to active weapon", func(): game.inventory_action(inventory_selected, "use"), blocked != "")
@@ -839,6 +851,8 @@ func show_pause() -> void:
 		if game.save_run(): notify("Run saved."),
 		game.previous_state not in ["preparation", "wave"] or not game.eligible)
 	button(body, "Settings", show_settings)
+	button(body, "Field guide", show_wiki)
+	button(body, "Achievements", show_achievements)
 	if not game.saved_editor.is_empty(): button(body, "Return to map editor", func(): editor.return_from_playtest())
 	button(body, "Abandon run", func(): confirm_abandon())
 	spacer(body)
@@ -923,10 +937,18 @@ func show_statistics() -> void:
 	readout(record, "Research nodes", "%d / %d" % [data.research.size(), game.catalog.technologies.size()])
 	readout(record, "Ascensions", str(data.ascensions))
 	readout(record, "Ascension Cores", str(data.cores))
-	var achievements = scroll_column(content, 12)
-	section(achievements, "ACHIEVEMENTS / %d EARNED" % data.achievements.size())
-	if data.achievements.is_empty(): label(achievements, "No achievements yet. Complete an eligible deployment to begin your record.", 18, Color("92abb8"))
-	for achievement in data.achievements: label(achievements, achievement, 20, Color("e3bb7d"))
+	button(record, "View achievements", show_achievements)
+
+func show_wiki() -> void:
+	field_guide.show_wiki()
+
+func show_achievements() -> void:
+	field_guide.show_achievements()
+
+func set_setting(key: String, value: Variant) -> void:
+	game.profile.data.settings[key] = value
+	game.apply_settings()
+	if key in ["volume", "music", "muted"] and not game.profile.save(): notify("Audio setting could not be saved: " + game.profile.error)
 
 func show_sandbox() -> void:
 	if game.mode != "sandbox" or game.state not in ["preparation", "wave"] or game.reward_pending: return
@@ -1010,24 +1032,26 @@ func show_settings() -> void:
 	var settings_col = scroll_column(content, 18)
 	section(settings_col, settings_section.to_upper())
 	var settings = game.profile.data.settings
-	for entry in [["fov", "Field of view", 60, 110, 1, "Display"], ["sensitivity", "Mouse sensitivity", 0.0005, 0.006, 0.0001, "Controls"], ["volume", "Effects volume", 0, 1, 0.05, "Audio"], ["music", "Music volume", 0, 1, 0.05, "Audio"], ["fps", "Frame limit", 30, 240, 10, "Display"], ["enemy_cap", "Active enemy cap", 25, 250, 25, "Gameplay"], ["hud_scale", "HUD scale", 0.75, 1.5, 0.05, "Display"]]:
+	for entry in [["fov", "Field of view", 60, 110, 1, "Display"], ["sensitivity", "Mouse sensitivity", 0.0005, 0.006, 0.0001, "Controls"], ["volume", "Master volume", 0, 1, 0.05, "Audio"], ["music", "Music volume", 0, 1, 0.05, "Audio"], ["fps", "Frame limit", 30, 240, 10, "Display"], ["enemy_cap", "Active enemy cap", 25, 250, 25, "Gameplay"], ["hud_scale", "HUD scale", 0.75, 1.5, 0.05, "Display"]]:
 		if entry[5] != settings_section: continue
 		var line = row(settings_col)
 		var name_label = label(line, entry[1], 18)
 		name_label.custom_minimum_size.x = 260
 		var spin = SpinBox.new()
-		spin.min_value = entry[2]
-		spin.max_value = entry[3]
-		spin.step = entry[4]
-		spin.value = settings[entry[0]]
-		spin.value_changed.connect(func(value): settings[entry[0]] = value; game.apply_settings())
+		var scale_factor = 100.0 if entry[0] in ["volume", "music"] else 1.0
+		spin.min_value = entry[2] * scale_factor
+		spin.max_value = entry[3] * scale_factor
+		spin.step = entry[4] * scale_factor
+		spin.value = settings[entry[0]] * scale_factor
+		if scale_factor == 100.0: spin.suffix = "%"
+		spin.value_changed.connect(func(value): set_setting(entry[0], value / scale_factor))
 		line.add_child(spin)
 	for entry in [["muted", "Mute all audio", "Audio"], ["fullscreen", "Fullscreen", "Display"], ["vsync", "VSync", "Display"], ["crosshair", "Crosshair", "Display"], ["shake", "Camera recoil", "Gameplay"], ["adaptive", "Adaptive factions for new runs", "Gameplay"], ["weather", "Weather visuals", "Display"], ["camera_motion", "Head bob, landing feedback and weapon sway", "Gameplay"], ["movement_effects", "Speed lines, movement FOV and camera tilt", "Gameplay"], ["stamina", "Slide stamina", "Gameplay"]]:
 		if entry[2] != settings_section: continue
 		var check = CheckButton.new()
 		check.text = entry[1]
 		check.button_pressed = settings[entry[0]]
-		check.toggled.connect(func(value): settings[entry[0]] = value; game.apply_settings())
+		check.toggled.connect(func(value): set_setting(entry[0], value))
 		settings_col.add_child(check)
 	if settings_section == "Audio":
 		label(settings_col, "Audio is always muted while the game is in the background.", 16, Color("92abb8"))

@@ -1,5 +1,7 @@
 extends Control
 
+const TileArt = preload("res://scripts/tile_art.gd")
+
 signal selected(cell: Vector2i, button: int, dragging: bool)
 
 class TerrainLayer extends Control:
@@ -114,6 +116,13 @@ func draw_terrain(canvas: CanvasItem) -> void:
 				if marker.type == "enemy": c = Color("eb856a")
 				if marker.type == "player": c = Color("e5eaf0")
 				canvas.draw_circle(rect.get_center(), cell_size * 0.32, c)
+			if not miniature and cell_size >= 18:
+				var symbol = terrain
+				for layer in ["decoration", "objects", "structure", "markers"]:
+					if visible_layers.get(layer, true) and world.map.layers[layer].has(key): symbol = world.map.layers[layer][key].type
+				if symbol != terrain and symbol != "permanent" and (symbol not in world.WALLS or cell_size >= 32):
+					canvas.draw_rect(rect.grow(-cell_size * 0.08), Color("1a2b34"))
+					canvas.draw_texture_rect(TileArt.icon(symbol), rect.grow(-cell_size * 0.08), false, Color(1, 1, 1, 0.8))
 			if key in invalid_cells: canvas.draw_rect(rect, Color("ff705d"), false, 3)
 
 func local_cell(pos: Vector2) -> Vector2i:

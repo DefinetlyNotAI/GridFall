@@ -7,11 +7,38 @@ const ASCENSION_PERKS = {
 	"tower_evolution": {"name": "Resonant architecture", "description": "Unlock the Resonant tower evolution: stronger, faster attacks chain to a second target.", "max_rank": 1},
 	"mutation": {"name": "Inherited mutation", "description": "Choose a starting mutation: health, firing speed, or salvage. Strength increases per rank.", "max_rank": 3}
 }
+const ACHIEVEMENTS = {
+	"First stand": {"metric": "cleared", "target": 1, "detail": "Clear your first wave."},
+	"Tenacious": {"metric": "cleared", "target": 10, "detail": "Clear 10 waves in one deployment."},
+	"Long watch": {"metric": "cleared", "target": 25, "detail": "Clear 25 waves in one deployment."},
+	"Unbroken": {"metric": "cleared", "target": 50, "detail": "Clear 50 waves in one deployment."},
+	"Siege breaker": {"metric": "bosses", "target": 1, "detail": "Defeat a boss."},
+	"Titan hunter": {"metric": "bosses", "target": 5, "detail": "Defeat five bosses in one deployment."},
+	"Century": {"metric": "kills", "target": 100, "detail": "Defeat 100 enemies in one deployment."},
+	"Millennium": {"metric": "kills", "target": 1000, "detail": "Defeat 1,000 enemies in one deployment."},
+	"Field engineer": {"metric": "built", "target": 20, "detail": "Build 20 defenses in one deployment."},
+	"Fortress": {"metric": "built", "target": 50, "detail": "Build 50 defenses in one deployment."},
+	"Lasting defense": {"metric": "duration", "target": 1800, "detail": "Survive 30 minutes in one deployment."},
+	"Arsenal specialist": {"metric": "weapon_damage", "target": 25000, "detail": "Deal 25,000 weapon damage in one deployment."},
+	"Automation": {"metric": "tower_damage", "target": 25000, "detail": "Deal 25,000 tower damage in one deployment."},
+	"Demolitionist": {"metric": "explosive_damage", "target": 15000, "detail": "Deal 15,000 explosive damage in one deployment."},
+	"Elementalist": {"metric": "elemental_damage", "target": 10000, "detail": "Deal 10,000 elemental damage in one deployment."},
+	"Pulse engineer": {"metric": "ability_damage", "target": 5000, "detail": "Deal 5,000 ability damage in one deployment."},
+	"Untouchable core": {"metric": "cleared", "target": 10, "condition": "core", "detail": "Clear 10 waves without any core damage."},
+	"Iron survivor": {"metric": "cleared", "target": 10, "condition": "challenge", "detail": "Clear 10 Challenge waves with at least +35% rule difficulty."},
+	"Siege veteran": {"metric": "cleared", "target": 10, "condition": "siege", "detail": "Clear 10 waves in Siege Protocol."},
+	"Scavenger veteran": {"metric": "cleared", "target": 10, "condition": "scavenger", "detail": "Clear 10 waves in Scavenger."},
+	"Daily defender": {"metric": "cleared", "target": 10, "condition": "daily", "detail": "Clear 10 waves in Daily Defense."},
+	"Collector": {"metric": "loot_collected", "target": 30, "detail": "Collect 30 drops in one deployment."},
+	"Supply chain": {"metric": "earned", "target": 10000, "detail": "Earn 10,000 scrap in one deployment."},
+	"Chain of command": {"metric": "streak", "target": 30, "detail": "Reach a 30-kill streak."},
+	"Ascendant": {"metric": "ascensions", "target": 1, "detail": "Complete your first Ascension."}
+}
 var data: Dictionary = {}
 var error = ""
 
 func defaults() -> Dictionary:
-	return {"version": 1, "tp": 0, "research": {}, "awarded": [], "runs": 0, "kills": 0, "best": 0, "bosses": 0, "high_score": 0, "survival_time": 0, "achievements": {}, "ascensions": 0, "cores": 0, "ascension_perks": {}, "secondary_loadout": "pistol", "mutation": "vitality", "settings": {"sensitivity": 0.002, "fov": 82.0, "volume": 0.6, "music": 0.25, "muted": true, "fullscreen": false, "resolution": 0, "vsync": true, "fps": 120, "quality": 1, "enemy_cap": 100, "hud_scale": 1.0, "crosshair": true, "shake": true, "adaptive": true, "weather": true, "camera_motion": false, "movement_effects": true, "stamina": false, "visual_mode": 0, "advanced_lighting": false, "keys": {}}, "loadout": "rifle"}
+	return {"version": 1, "tp": 0, "research": {}, "awarded": [], "runs": 0, "kills": 0, "best": 0, "bosses": 0, "high_score": 0, "survival_time": 0, "achievements": {}, "ascensions": 0, "cores": 0, "ascension_perks": {}, "secondary_loadout": "pistol", "mutation": "vitality", "settings": {"sensitivity": 0.002, "fov": 82.0, "volume": 0.7, "music": 0.25, "muted": false, "fullscreen": false, "resolution": 0, "vsync": true, "fps": 120, "quality": 1, "enemy_cap": 100, "hud_scale": 1.0, "crosshair": true, "shake": true, "adaptive": true, "weather": true, "camera_motion": false, "movement_effects": true, "stamina": false, "visual_mode": 0, "advanced_lighting": false, "keys": {}}, "loadout": "rifle"}
 
 func valid(value: Variant) -> bool:
 	if not value is Dictionary or value.get("version") != 1:
@@ -42,6 +69,10 @@ func valid(value: Variant) -> bool:
 		if not value.achievements is Dictionary: return false
 		for key in value.achievements:
 			if not key is String or not value.achievements[key] is bool: return false
+	if value.has("achievement_progress"):
+		if not value.achievement_progress is Dictionary: return false
+		for key in value.achievement_progress:
+			if not ACHIEVEMENTS.has(key) or not numeric(value.achievement_progress[key], 0, ACHIEVEMENTS[key].target): return false
 	var settings = value.settings
 	if settings.has("keys"):
 		if not settings.keys is Dictionary: return false
@@ -56,6 +87,14 @@ func valid(value: Variant) -> bool:
 
 func numeric(value: Variant, low: float, high: float) -> bool:
 	return (value is int or value is float) and is_finite(float(value)) and float(value) >= low and float(value) <= high
+
+func achievement_value(name_value: String, stats: Dictionary) -> float:
+	var definition = ACHIEVEMENTS[name_value]
+	var condition = str(definition.get("condition", ""))
+	if condition == "core" and stats.get("core_damage_taken", 0) > 0: return 0
+	if condition == "challenge" and (stats.get("mode", "") != "challenge" or stats.get("challenge_weight", 0.0) < 0.3499): return 0
+	if condition in ["siege", "scavenger", "daily"] and stats.get("mode", "") != condition: return 0
+	return clampf(float(stats.get(definition.metric, 0)), 0, float(definition.target))
 
 func respec(nodes: Array) -> String:
 	if not data.settings.get("respec_enabled", true): return "Research respec is disabled in settings."
@@ -190,6 +229,9 @@ func award(id: String, stats: Dictionary, eligible: bool) -> int:
 	data.high_score = maxf(data.high_score, float(stats.get("score", 0)))
 	data.survival_time += float(stats.get("duration", 0))
 	for achievement in stats.get("achievements", []): data.achievements[achievement] = true
+	if not data.has("achievement_progress"): data.achievement_progress = {}
+	for name_value in ACHIEVEMENTS:
+		data.achievement_progress[name_value] = maxf(float(data.achievement_progress.get(name_value, 0)), achievement_value(name_value, stats))
 	if not save():
 		data = before
 		return -1

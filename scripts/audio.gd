@@ -96,7 +96,8 @@ func synth(kind: String) -> AudioStreamWAV:
 	return stream
 
 func apply_volume() -> void:
-	AudioServer.set_bus_mute(0, bool(game.profile.data.settings.get("muted", true)) or not window_focused)
+	AudioServer.set_bus_mute(0, bool(game.profile.data.settings.get("muted", false)) or not window_focused)
+	AudioServer.set_bus_volume_db(0, linear_to_db(float(game.profile.data.settings.volume)))
 	if music:
 		music.volume_db = linear_to_db(maxf(0.0001, game.profile.data.settings.music))
 
@@ -118,14 +119,14 @@ func cue(kind: String, pos: Vector3 = Vector3.ZERO, volume: float = 0.7) -> void
 		return
 	if kind == "ui":
 		ui_voice.stream = streams[kind]
-		ui_voice.volume_db = linear_to_db(maxf(0.0001, volume * float(game.profile.data.settings.volume)))
+		ui_voice.volume_db = linear_to_db(maxf(0.0001, volume))
 		ui_voice.play()
 		return
 	for voice in voices:
 		if not voice.playing:
 			voice.global_position = pos if pos != Vector3.ZERO else (game.player.global_position if is_instance_valid(game.player) else Vector3.ZERO)
 			voice.stream = streams[kind]
-			voice.volume_db = linear_to_db(maxf(0.0001, volume * float(game.profile.data.settings.volume)))
+			voice.volume_db = linear_to_db(maxf(0.0001, volume))
 			voice.pitch_scale = variation_rng.randf_range(0.94, 1.06)
 			voice.play()
 			return
