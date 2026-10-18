@@ -11,6 +11,7 @@ var rotation = 0
 var undo_stack: Array = []
 var redo_stack: Array = []
 var clipboard: Dictionary = {}
+var clipboard_build: Dictionary = {}
 var corner = Vector2i(-1, -1)
 var selection_a = Vector2i(-1, -1)
 var selection_b = Vector2i(-1, -1)
@@ -155,6 +156,7 @@ func _prepare_map_replacement() -> void:
 	selection_a = Vector2i(-1, -1)
 	selection_b = Vector2i(-1, -1)
 	clipboard.clear()
+	clipboard_build.clear()
 	clipboard_layer = ""
 	tool = "Paint"
 	if is_instance_valid(grid):
@@ -249,9 +251,27 @@ func click(p: Vector2i, mouse_button: int, dragging: bool) -> void:
 			paint(q)
 			for d in [Vector2i.LEFT, Vector2i.RIGHT, Vector2i.UP, Vector2i.DOWN]: queue.append(q + d)
 	elif tool == "Paste":
+		if layer == "ground":
+			for relative_key in clipboard_build:
+				var build_destination: Vector2i = p + game.world.point(relative_key)
+				if not game.world.inside(build_destination): continue
+				var build_key = game.world.cell_key(build_destination)
+				if clipboard_build[relative_key]:
+					if build_key not in game.world.map.build: game.world.map.build.append(build_key)
+				else:
+					game.world.map.build.erase(build_key)
 		for key in clipboard:
 			var destination: Vector2i = p + game.world.point(key)
-			if game.world.inside(destination): game.world.map.layers[layer][game.world.cell_key(destination)] = clipboard[key].duplicate(true)
+			if not game.world.inside(destination): continue
+			var destination_key = game.world.cell_key(destination)
+			var tile: Dictionary = clipboard[key].duplicate(true)
+			if layer == "markers" and tile.get("type", "") in ["player", "objective"]:
+				for old_key in game.world.map.layers.markers.keys():
+					if game.world.map.layers.markers[old_key].type == tile.type:
+						game.world.map.layers.markers.erase(old_key)
+			game.world.map.layers[layer][destination_key] = tile
+			if layer == "markers" and tile.get("type", "") in ["pad", "tower_pad", "structure_pad"] and destination_key not in game.world.map.build:
+				game.world.map.build.append(destination_key)
 	else:
 		paint(p, tool == "Erase" or mouse_button == MOUSE_BUTTON_RIGHT)
 	set_status("%s / %s / %s / %d°" % [p, layer, tile_type, rotation])
@@ -261,13 +281,16 @@ func copy_selection() -> void:
 		set_status("Use Select and choose two corners first.")
 		return
 	clipboard.clear()
+	clipboard_build.clear()
 	clipboard_layer = layer
 	for y in range(selection_a.y, selection_b.y + 1):
 		for x in range(selection_a.x, selection_b.x + 1):
 			var p = Vector2i(x, y)
 			var key = game.world.cell_key(p)
+			var relative_key = game.world.cell_key(p - selection_a)
 			if game.world.map.layers[layer].has(key):
-				clipboard[game.world.cell_key(p - selection_a)] = game.world.map.layers[layer][key].duplicate(true)
+				clipboard[relative_key] = game.world.map.layers[layer][key].duplicate(true)
+				if layer == "ground": clipboard_build[relative_key] = key in game.world.map.build
 	tool = "Paste"
 	_refresh_tool_buttons()
 	set_status("Copied %d tiles from %s. Click to paste." % [clipboard.size(), layer])
