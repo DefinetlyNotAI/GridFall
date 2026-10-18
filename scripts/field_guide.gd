@@ -65,12 +65,12 @@ func entries() -> Array:
 		"Field manual":
 			return [
 				{"id": "movement", "name": "Movement & survival", "description": "Run, jump, dash and slide to preserve momentum. Hold Grapple to pull toward a surface or enemy within 48 m. Release to coast; jumping, dashing or slamming cancels the hook. A ground slam consumes one of the three dash/stamina bars. Falling below the world recovers you at deployment, even during combat. Enemy damage can still end the run."},
-				{"id": "combat", "name": "Parries & close combat", "description": "Punch opens a 0.16-second frontal parry window with a 0.55-second cooldown. Reflect one projectile at double damage, or retaliate against a melee strike. A successful parry restores 5 health and 0.35 dash energy. A visible weapon or ability kill within 5 m restores 3 health."},
+				{"id": "combat", "name": "Parries & close combat", "description": "Punch opens a 0.16-second frontal parry window with a 0.55-second cooldown. Reflect one projectile at double damage, or retaliate against a melee strike. A successful parry restores 5 health and 0.35 dash energy. A visible weapon or ability kill within 5 m restores 3 health plus 2% of maximum health."},
 				{"id": "planning", "name": "Construction & supplies", "description": "Build during preparation on permitted ground. Use the planning grid to inspect, repair, specialize, move, replace or sell defenses. Marked tower pads accept attack towers; structure pads accept other construction. Fixed terrain belongs to the world. Supplies and chests are used during preparation; ammunition and medkits have finite capacity."},
-				{"id": "levels", "name": "Experience & upgrade drafts", "description": "Kills grant XP based on enemy threat cost. At each wave clear, earned levels are converted into upgrade choices. Every cleared wave grants at least one draft; multiple earned levels grant multiple choices. Unresolved choices survive checkpoints. XP, level and run upgrades reset on a new deployment."},
+				{"id": "levels", "name": "Experience & upgrade drafts", "description": "Kills grant XP based on enemy threat cost. At each wave clear, earned levels are converted into upgrade choices. Each of the first 30 earned levels adds 6 maximum health. Levels add 6% weapon damage, capped at +150%, and delayed recovery up to 2 HP/s. Every cleared wave grants at least one draft; multiple earned levels grant multiple choices. Unresolved choices survive checkpoints. XP, level and run upgrades reset on a new deployment."},
 				{"id": "progression", "name": "Permanent progression", "description": "Eligible defeats award Technology Points and record achievements. Research unlocks equipment and permanent bonuses for future deployments. Ascension needs wave 25 and 20 technologies, resets ordinary research, and awards cores for permanent Ascension perks. Sandbox grants no TP or achievements."},
 				{"id": "frontier", "name": "World evolution & Frontier", "description": "Authored routes and portals change after waves 4, 8 and 12. Expanding Frontier adds eight tiles east and south every four cleared waves, relocating outer approaches while preserving your defenses. Territory stops growing at 96 by 96; waves remain endless."},
-				{"id": "equipment", "name": "Loot & equipment", "description": "Weapons can carry rarity bonuses, compatible special modifiers and one attachment per slot. Inventory shows resolved weapon stats. Detaching a magazine returns excess loaded ammunition to reserve. Armor and shield packs apply to the current run. Drop or scrap unused gear to free backpack space."},
+				{"id": "equipment", "name": "Loot & equipment", "description": "Weapons can carry rarity bonuses, compatible special modifiers and one attachment per slot. Inventory shows resolved weapon stats. Attachment rarity strengthens beneficial values while keeping drawbacks, and survives replacing or detaching modules. Detaching a magazine returns excess loaded ammunition to reserve. Armor and shield packs apply to the current run. Drop or scrap unused gear to free backpack space."},
 				{"id": "saves", "name": "Saving & audio", "description": "Eligible runs save at wave boundaries and when closed during active play. Combat saves resume paused. Settings are separate from run progress. Audio starts at 70% on new profiles; audio changes save immediately. All game audio is muted in the background, then restores your chosen preference when focused."}
 			]
 	if source is Array:
@@ -139,7 +139,8 @@ func show_entry(entry: Dictionary) -> void:
 	if category == "Enemies": description = ENEMY_TACTICS.get(entry.id, description)
 	if category == "Tiles": description = tile_detail(entry.id)
 	if description != "": ui.label(detail, description, 18)
-	if category == "Enemies": enemy_preview(entry)
+	if category in ["Weapons", "Enemies", "Defenses", "Attachments", "Equipment", "Tiles"]:
+		catalog_preview(category, entry)
 	match category:
 		"Weapons":
 			for pair in [["Damage per pellet", entry.damage], ["Pellets", entry.pellets], ["Shot interval", "%.2f s" % entry.interval], ["Magazine / starting reserve", "%d / %d" % [entry.magazine, entry.reserve]], ["Reload", "%.2f s" % entry.reload], ["Range", "%.1f m" % entry.range], ["Spread", "%.1f degrees" % entry.spread]]: stat(pair[0], pair[1])
@@ -157,6 +158,13 @@ func show_entry(entry: Dictionary) -> void:
 		"Attachments":
 			stat("Slot", entry.get("slot", entry.id))
 			stat("Compatible mechanisms", ", ".join(entry.compatible_mechanisms))
+			for rarity in 5:
+				var values: Array[String] = []
+				var definition = game.attachment_definition(entry.id, rarity)
+				for key in definition.stats:
+					var value = float(definition.stats[key])
+					values.append("%s %s" % [str(key).replace("_mult", "").replace("_", " "), "%+.1f%%" % ((value - 1) * 100) if str(key).ends_with("_mult") else "%.1f" % value])
+				stat(["Common", "Uncommon", "Rare", "Epic", "Legendary"][rarity], "; ".join(values))
 			ui.label(detail, "One module per slot. Attach from Inventory; replacing returns the previous module. The Shock Blade accepts only elemental modules.", 16, Color("92abb8"))
 		"Weapon modifiers": stat("Compatible mechanisms", ", ".join(entry.mechanisms))
 		"Special upgrades":
@@ -181,7 +189,7 @@ func show_entry(entry: Dictionary) -> void:
 		for node in game.catalog.technologies:
 			if node.id == tech: stat("Required research", node.name)
 
-func enemy_preview(entry: Dictionary) -> void:
+func catalog_preview(category_name: String, entry: Dictionary) -> void:
 	var frame = SubViewportContainer.new()
 	frame.custom_minimum_size.y = 180
 	frame.stretch = true
@@ -192,23 +200,41 @@ func enemy_preview(entry: Dictionary) -> void:
 	viewport.own_world_3d = true
 	viewport.render_target_update_mode = SubViewport.UPDATE_ONCE
 	frame.add_child(viewport)
-	var mesh = MeshInstance3D.new()
-	mesh.mesh = game.visuals.enemy_mesh(entry.id, Color(entry.color))
-	var material = StandardMaterial3D.new()
-	material.vertex_color_use_as_albedo = true
-	material.roughness = 0.72
-	material.metallic = 0.35
-	mesh.material_override = material
-	viewport.add_child(mesh)
+	var model = game.visuals.catalog_model(category_name, entry)
+	if model == null: return
+	viewport.add_child(model)
 	var light = DirectionalLight3D.new()
 	light.rotation = Vector3(-0.8, -0.6, 0)
 	light.light_energy = 1.8
 	viewport.add_child(light)
+	var focus = Vector3(0, 1.1, 0)
+	var offset = Vector3(2.8, 1.8, -4.0)
+	if category_name in ["Weapons", "Attachments"]:
+		focus.y = 0.25
+		offset = Vector3(1.7, 0.8, -2.6)
+	elif category_name == "Enemies":
+		focus.y = 0.85
+		offset = Vector3(1.8, 0.7, -2.7)
+	elif category_name == "Equipment":
+		focus.y = 0.35
+		offset = Vector3(2.0, 1.0, -3.0)
+	elif category_name == "Tiles":
+		focus.y = 0.75
+		offset = Vector3(3.0, 1.8, -4.2)
 	var camera = Camera3D.new()
-	camera.position = Vector3(1.8, 1.5, -2.4)
-	camera.fov = 32
+	var bounds = AABB()
+	var has_bounds = false
+	for mesh in model.find_children("*", "MeshInstance3D", true, false):
+		var mesh_bounds: AABB = mesh.global_transform * mesh.get_aabb()
+		bounds = bounds.merge(mesh_bounds) if has_bounds else mesh_bounds
+		has_bounds = true
+	if has_bounds:
+		focus = bounds.get_center()
+		offset = offset.normalized() * maxf(0.35, bounds.size.length() * 0.65 / tan(deg_to_rad(19.0)))
+	camera.position = focus + offset
+	camera.fov = 38
 	viewport.add_child(camera)
-	camera.look_at(Vector3(0, 0.85, 0))
+	camera.look_at(focus)
 	camera.current = true
 	var environment = WorldEnvironment.new()
 	environment.environment = Environment.new()

@@ -30,6 +30,18 @@ var unit_cylinder_mesh: CylinderMesh
 const FLOOR_COLOR = preload("res://assets/materials/floor_diff.jpg")
 const FLOOR_NORMAL = preload("res://assets/materials/floor_nor_gl.jpg")
 const FLOOR_ROUGHNESS = preload("res://assets/materials/floor_rough.jpg")
+const WATER_SHADER = preload("res://scripts/water.gdshader")
+const WEAPON_SHOWCASE = {
+	"pistol": preload("res://assets/kenney/blaster-k.glb"),
+	"smg": preload("res://assets/kenney/blaster-a.glb"),
+	"rifle": preload("res://assets/kenney/blaster-h.glb"),
+	"shotgun": preload("res://assets/kenney/blaster-m.glb"),
+	"sniper": preload("res://assets/kenney/blaster-g.glb"),
+	"lmg": preload("res://assets/kenney/blaster-e.glb"),
+	"rocket": preload("res://assets/kenney/blaster-o.glb"),
+	"plasma": preload("res://assets/kenney/blaster-q.glb")
+}
+var turret_clock = 0.0
 
 func material(color: Color, emission: float = 0.0, metal: float = 0.0) -> StandardMaterial3D:
 	var key = str(color) + str(emission) + str(metal)
@@ -87,6 +99,30 @@ func cylinder_collision(parent: CollisionObject3D, radius: float, height: float,
 	shape.shape = cylinder_shape
 	shape.position = offset
 	parent.add_child(shape)
+
+func floor_collisions(floor_body: StaticBody3D, world, w: int, h: int) -> void:
+	var has_water = false
+	for key in world.map.layers.ground:
+		if world.map.layers.ground[key].type == "water":
+			has_water = true
+			break
+	if world.map.layers.ground.size() == w * h and not has_water:
+		collision(floor_body, Vector3(w * 3, 0.4, h * 3), Vector3(w * 1.5, -0.2, h * 1.5))
+		return
+	for y in h:
+		var start = -1
+		var water = false
+		for x in range(w + 1):
+			var key = world.cell_key(Vector2i(x, y)) if x < w else ""
+			var present = x < w and world.map.layers.ground.has(key)
+			var next_water = present and world.map.layers.ground[key].type == "water"
+			if start >= 0 and (not present or next_water != water):
+				var top = -0.65 if water else 0.0
+				collision(floor_body, Vector3((x - start) * 3, 0.4, 3), Vector3((start + x) * 1.5, top - 0.2, (y + 0.5) * 3))
+				start = -1
+			if present and start < 0:
+				start = x
+				water = next_water
 
 func rotated_box_collision(parent: CollisionObject3D, size: Vector3, offset: Vector3, rotation_degrees: float) -> void:
 	var shape = CollisionShape3D.new()
@@ -255,6 +291,23 @@ func clear_weather() -> void:
 	weather = "Clear"
 	if rain: rain.emitting = false
 
+func update_idle_turrets(delta: float) -> void:
+	if game == null or not is_instance_valid(geometry): return
+	turret_clock += delta
+	for key in structures:
+		if not game.world.construction.has(key): continue
+		var data: Dictionary = game.world.construction[key]
+		if data.kind != "tower": continue
+		var body: Node3D = structures[key]
+		var head = body.get_node_or_null("Head")
+		if not is_instance_valid(head): continue
+		var aim_lock = maxf(0.0, float(head.get_meta("aim_lock", 0.0)) - delta)
+		head.set_meta("aim_lock", aim_lock)
+		if game.state == "wave" and (aim_lock > 0.0 or float(data.get("cooldown", 0.0)) > 0.0): continue
+		var phase = float(posmod(hash(key), 4096)) / 4096.0 * TAU
+		var desired_yaw = sin(turret_clock * 0.58 + phase) * deg_to_rad(42.0)
+		head.rotation.y = lerp_angle(head.rotation.y, desired_yaw, minf(1.0, delta * 2.2))
+
 func rebuild() -> void:
 	if is_instance_valid(geometry):
 		remove_child(geometry)
@@ -269,19 +322,9 @@ func rebuild() -> void:
 	apply_render_settings()
 	var floor_body = StaticBody3D.new()
 	geometry.add_child(floor_body)
-	if world.map.layers.ground.size() == w * h:
-		collision(floor_body, Vector3(w * 3, 0.4, h * 3), Vector3(w * 1.5, -0.2, h * 1.5))
-	else:
-		for y in h:
-			var start = -1
-			for x in range(w + 1):
-				var present = x < w and world.map.layers.ground.has(world.cell_key(Vector2i(x, y)))
-				if present and start < 0: start = x
-				if not present and start >= 0:
-					collision(floor_body, Vector3((x - start) * 3, 0.4, 3), Vector3((start + x) * 1.5, -0.2, (y + 0.5) * 3))
-					start = -1
+	floor_collisions(floor_body, world, w, h)
 	var terrain_colors = {"concrete": Color("303e48"), "grass": Color("344c3d"), "dirt": Color("5b4d40"), "sand": Color("8c7d56"), "road": Color("202d35"), "metal": Color("344a55"), "stone": Color("4f5358"), "water": Color("174b65")}
-	var terrain_details = {"metal": [], "water": [], "grass": []}
+	var terrain_details = {"metal": [], "grass": []}
 	for terrain in terrain_colors:
 		var cells: Array = []
 		for key in world.map.layers.ground:
@@ -314,10 +357,6 @@ func rebuild() -> void:
 			ground_material.albedo_color = Color("455963")
 			ground_material.metallic = 0.62
 			ground_material.roughness = 0.48
-		elif terrain == "water":
-			ground_material.metallic = 0.2
-			ground_material.roughness = 0.3
-			ground_material.normal_scale = 0.55
 		if terrain in ["concrete", "stone"]:
 			ground_material.albedo_color = Color("a6b0b7") if terrain == "concrete" else Color("8e9395")
 			ground_material.albedo_texture = FLOOR_COLOR
@@ -327,7 +366,12 @@ func rebuild() -> void:
 			ground_material.roughness = 1
 			ground_material.metallic = 0
 			ground_material.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
-		multi.material_override = ground_material
+		if terrain == "water":
+			var water_material = ShaderMaterial.new()
+			water_material.shader = WATER_SHADER
+			multi.material_override = water_material
+		else:
+			multi.material_override = ground_material
 		geometry.add_child(multi)
 	for terrain in terrain_details:
 		if not terrain_details[terrain].is_empty():
@@ -444,6 +488,27 @@ func rebuild() -> void:
 			var p = world.position(Vector2i(x, y))
 			box(geometry, p + Vector3(0, 2.5, 0), Vector3(0.14, 5, 0.14), Color("425460"))
 			box(geometry, p + Vector3(0, 5, 0), Vector3(1.2, 0.16, 0.35), Color("ffd799"), 1)
+	if world.map.get("id", "") == "debug_gallery":
+		gallery_labels(world)
+
+func gallery_labels(world) -> void:
+	for layer in world.map.layers:
+		for key in world.map.layers[layer]:
+			var point: Vector2i = world.point(key)
+			if layer == "ground" and (point.y != 2 or point.x < 2 or point.x > 23 or (point.x - 2) % 3 != 0):
+				continue
+			var tile: Dictionary = world.map.layers[layer][key]
+			var label = Label3D.new()
+			label.text = "%s / %s" % [str(layer).capitalize(), str(tile.get("type", "tile")).replace("_", " ").capitalize()]
+			label.position = world.position(point, 1.45 if layer in ["ground", "objects", "decoration"] else 4.0)
+			label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+			label.font_size = 42
+			label.pixel_size = 0.006
+			label.outline_size = 8
+			label.outline_modulate = Color("101c25")
+			label.modulate = Color("f2ddb0")
+			label.no_depth_test = true
+			geometry.add_child(label)
 
 func fixed_tile(key: String) -> void:
 	var tile = game.world.map.layers.structure[key]
@@ -530,12 +595,6 @@ func terrain_detail_parts(terrain: String) -> Array:
 		for x in [-1.12, 1.12]:
 			for z in [-1.12, 1.12]:
 				add_visual_part(parts, Vector3(x, 0.055, z), Vector3(0.075, 0.035, 0.075), Color("a7b7b7"), "cylinder")
-	elif terrain == "water":
-		for i in 4:
-			var x = -0.9 + i * 0.55
-			var z = -0.8 + (i % 2) * 0.75
-			add_visual_part(parts, Vector3(x, 0.008, z), Vector3(0.62, 0.01, 0.035), Color("3d8494"))
-			add_visual_part(parts, Vector3(x + 0.18, 0.009, z + 0.07), Vector3(0.22, 0.01, 0.025), Color("6bb4bd"))
 	elif terrain == "grass":
 		for i in 3:
 			var x = -0.68 + i * 0.36
@@ -601,6 +660,8 @@ func remove_fixed(key: String) -> void:
 		geometry.remove_child(fixed_nodes[key])
 		fixed_nodes[key].queue_free()
 	fixed_nodes.erase(key)
+	if game.world.construction.has(key):
+		structure(key)
 
 func structure(key: String) -> void:
 	if structures.has(key) and is_instance_valid(structures[key]):
@@ -612,31 +673,308 @@ func structure(key: String) -> void:
 	var data = game.world.construction[key]
 	var body = StaticBody3D.new()
 	body.set_meta("structure", key)
-	body.position = game.world.position(game.world.point(key))
+	body.position = game.structure_position(key)
 	body.rotation_degrees.y = float(data.get("rotation", 0))
 	geometry.add_child(body)
 	structures[key] = body
-	var color = Color(data.color)
 	if data.kind == "wall":
 		collision(body, Vector3(2.8, 2.2, 2.8), Vector3(0, 1.1, 0))
-		box(body, Vector3(0, 1.1, 0), Vector3(2.8, 2.2, 2.8), Color("4b5b64"))
-		box(body, Vector3(0, 2.22, 0), Vector3(2.7, 0.1, 2.7), color)
-	elif data.kind == "trap":
-		cylinder(body, Vector3(0, 0.1, 0), 1.2, 0.2, color, 0.5)
-	else:
+	elif data.kind != "trap":
 		collision(body, Vector3(1.6, 1.9, 1.6), Vector3(0, 0.95, 0))
-		cylinder(body, Vector3(0, 0.25, 0), 1.15, 0.5, Color("1e303b"))
-		cylinder(body, Vector3(0, 0.9, 0), 0.5, 1, Color("4d6570"))
-		var head = Node3D.new()
-		head.name = "Head"
-		head.position.y = 1.8
-		body.add_child(head)
-		box(head, Vector3.ZERO, Vector3(1.2, 0.65, 1.0), color)
-		if data.kind == "tower":
-			box(head, Vector3(0, 0.05, -0.85), Vector3(0.22, 0.22, 1.3), Color("a1bac4"))
-			box(head, Vector3(0, 0.05, -1.52), Vector3(0.24, 0.24, 0.08), color, 2)
+	add_structure_visual(body, data)
+
+func add_structure_visual(parent: Node3D, data: Dictionary) -> void:
+	var color = Color(data.color)
+	var frame = Color("263841")
+	var steel = Color("72858b")
+	if data.kind == "wall":
+		box(parent, Vector3(0, 0.14, 0), Vector3(2.9, 0.28, 2.9), frame)
+		box(parent, Vector3(0, 1.19, 0), Vector3(2.78, 2.1, 2.78), Color("4b5b64"))
+		box(parent, Vector3(0, 2.28, 0), Vector3(2.9, 0.16, 2.9), steel)
+		box(parent, Vector3(0, 1.38, -1.405), Vector3(2.2, 0.46, 0.045), frame)
+		box(parent, Vector3(0, 1.38, -1.435), Vector3(0.84, 0.12, 0.025), color, 0.2)
+		for x in [-1.0, 0.0, 1.0]:
+			box(parent, Vector3(x, 1.18, -1.414), Vector3(0.06, 1.46, 0.04), steel)
+			box(parent, Vector3(x, 0.42, -1.44), Vector3(0.12, 0.12, 0.06), color, 0.15)
+		return
+	if data.kind == "trap":
+		cylinder(parent, Vector3(0, 0.1, 0), 1.2, 0.2, frame)
+		if data.id == "mine":
+			cylinder(parent, Vector3(0, 0.34, 0), 0.62, 0.38, Color("4d3b37"))
+			cylinder(parent, Vector3(0, 0.56, 0), 0.43, 0.08, color, 0.4)
+			for side in [-1, 1]:
+				box(parent, Vector3(side * 0.82, 0.19, 0), Vector3(0.16, 0.06, 1.42), color)
 		else:
-			cylinder(head, Vector3(0, 0.6, 0), 0.3, 1.0, color, 1)
+			for i in 8:
+				var angle = TAU * i / 8.0
+				var spike = cylinder(parent, Vector3(cos(angle) * 0.77, 0.38, sin(angle) * 0.77), 0.09, 0.62, steel)
+				spike.rotation.z = -0.18
+		return
+	box(parent, Vector3(0, 0.12, 0), Vector3(2.55, 0.2, 2.55), frame)
+	cylinder(parent, Vector3(0, 0.34, 0), 1.08, 0.3, steel)
+	cylinder(parent, Vector3(0, 0.88, 0), 0.46, 0.94, frame)
+	cylinder(parent, Vector3(0, 1.36, 0), 0.68, 0.12, color, 0.12)
+	for side in [-1, 1]:
+		for depth in [-1, 1]:
+			var brace = box(parent, Vector3(side * 0.73, 0.79, depth * 0.73), Vector3(0.16, 0.82, 0.16), steel)
+			brace.rotation.z = -side * 0.18
+	match data.kind:
+		"tower":
+			var head = Node3D.new()
+			head.name = "Head"
+			head.position.y = 1.8
+			parent.add_child(head)
+			build_turret_head(head, str(data.id), color)
+		"support":
+			cylinder(parent, Vector3(0, 2.0, 0), 0.16, 1.25, steel)
+			cylinder(parent, Vector3(0, 2.62, 0), 0.48, 0.14, color, 1.1)
+			cylinder(parent, Vector3(0, 2.84, 0), 0.3, 0.08, steel)
+			for side in [-1, 1]:
+				box(parent, Vector3(side * 0.34, 2.22, 0), Vector3(0.11, 0.54, 0.11), color, 0.15)
+		"repair":
+			box(parent, Vector3(0, 1.24, 0), Vector3(1.05, 0.82, 0.94), frame)
+			box(parent, Vector3(0, 1.69, 0), Vector3(0.7, 0.1, 0.66), color, 0.7)
+			for side in [-1, 1]:
+				var arm = box(parent, Vector3(side * 0.78, 1.85, 0), Vector3(0.16, 0.75, 0.16), steel)
+				arm.rotation.z = -side * 0.4
+				box(parent, Vector3(side * 1.02, 2.16, 0), Vector3(0.3, 0.14, 0.3), color, 0.45)
+		"generator":
+			box(parent, Vector3(0, 1.22, 0), Vector3(1.42, 1.12, 1.32), frame)
+			box(parent, Vector3(0, 1.84, 0), Vector3(1.54, 0.16, 1.44), steel)
+			cylinder(parent, Vector3(0, 2.04, 0), 0.38, 0.34, color, 0.8)
+			for side in [-1, 1]:
+				cylinder(parent, Vector3(side * 0.48, 1.22, -0.7), 0.11, 0.78, steel)
+		"ammo":
+			box(parent, Vector3(0, 1.16, 0), Vector3(1.56, 0.92, 1.36), Color("705540"))
+			for side in [-1, 1]:
+				box(parent, Vector3(side * 0.62, 1.17, -0.7), Vector3(0.13, 0.86, 0.06), steel)
+			for x in [-0.42, 0.0, 0.42]:
+				var shell = cylinder(parent, Vector3(x, 1.76, 0), 0.14, 0.76, color)
+				shell.rotation.x = PI * 0.5
+		"shield":
+			cylinder(parent, Vector3(0, 1.5, 0), 0.3, 0.84, frame)
+			cylinder(parent, Vector3(0, 1.98, 0), 0.48, 0.24, color, 1.2)
+			for side in [-1, 1]:
+				var coil = cylinder(parent, Vector3(side * 0.62, 1.78, 0), 0.14, 0.88, steel)
+				coil.rotation.z = -side * 0.25
+				box(parent, Vector3(side * 0.62, 2.26, 0), Vector3(0.28, 0.14, 0.28), color, 0.9)
+
+func horizontal_barrel(parent: Node3D, position: Vector3, radius: float, length: float, color: Color, glow: float = 0.0) -> MeshInstance3D:
+	var mesh = cylinder(parent, position, radius, length, color, glow)
+	mesh.rotation.x = PI * 0.5
+	return mesh
+
+func build_turret_head(head: Node3D, id: String, color: Color) -> void:
+	var frame = Color("1b2b34")
+	var steel = Color("8c9da1")
+	box(head, Vector3(0, 0, 0), Vector3(1.32, 0.68, 1.08), color)
+	box(head, Vector3(0, 0.36, 0.02), Vector3(1.18, 0.12, 0.96), steel)
+	box(head, Vector3(0, -0.39, 0.08), Vector3(0.92, 0.14, 0.76), frame)
+	for side in [-1, 1]:
+		var pivot = cylinder(head, Vector3(side * 0.7, 0, 0.02), 0.19, 0.2, steel)
+		pivot.rotation.z = PI * 0.5
+	match id:
+		"sentry":
+			for side in [-1, 1]:
+				horizontal_barrel(head, Vector3(side * 0.3, -0.02, -0.94), 0.13, 1.12, frame)
+				horizontal_barrel(head, Vector3(side * 0.3, -0.02, -1.48), 0.16, 0.12, steel)
+				box(head, Vector3(side * 0.3, -0.02, -1.56), Vector3(0.1, 0.1, 0.04), color, 0.5)
+			box(head, Vector3(0, 0.54, 0.18), Vector3(0.44, 0.13, 0.28), frame)
+		"rocket":
+			for side in [-1, 1]:
+				box(head, Vector3(side * 0.34, 0.03, -0.88), Vector3(0.42, 0.47, 1.02), frame)
+				horizontal_barrel(head, Vector3(side * 0.34, 0.03, -1.42), 0.17, 0.1, steel)
+				box(head, Vector3(side * 0.34, 0.03, -1.49), Vector3(0.22, 0.22, 0.025), color, 0.45)
+			box(head, Vector3(0, 0.56, 0.12), Vector3(0.7, 0.12, 0.32), steel)
+		"tesla":
+			for side in [-1, 1]:
+				var coil = cylinder(head, Vector3(side * 0.32, 0.18, -0.18), 0.12, 0.7, steel)
+				coil.rotation.z = side * 0.22
+				cylinder(head, Vector3(side * 0.32, 0.48, -0.18), 0.2, 0.09, color, 1.2)
+			horizontal_barrel(head, Vector3(0, 0.08, -0.88), 0.23, 0.64, frame)
+			horizontal_barrel(head, Vector3(0, 0.08, -1.23), 0.27, 0.11, color, 1.4)
+		"laser":
+			horizontal_barrel(head, Vector3(0, 0.02, -0.92), 0.18, 1.1, frame)
+			horizontal_barrel(head, Vector3(0, 0.02, -1.5), 0.25, 0.12, color, 1.4)
+			for side in [-1, 1]:
+				box(head, Vector3(side * 0.36, 0.18, -0.72), Vector3(0.1, 0.12, 0.82), steel)
+		"flame":
+			for side in [-1, 1]:
+				horizontal_barrel(head, Vector3(side * 0.3, -0.04, -0.85), 0.16, 0.9, frame)
+				horizontal_barrel(head, Vector3(side * 0.3, -0.04, -1.33), 0.21, 0.13, Color("ffb558"), 1.1)
+				cylinder(head, Vector3(side * 0.61, 0, 0.05), 0.16, 0.5, steel)
+		"rail":
+			horizontal_barrel(head, Vector3(0, 0.02, -1.06), 0.19, 1.48, frame)
+			horizontal_barrel(head, Vector3(0, 0.02, -1.85), 0.26, 0.13, steel)
+			for side in [-1, 1]:
+				box(head, Vector3(side * 0.25, 0.24, -1.08), Vector3(0.08, 0.11, 1.48), color, 0.2)
+		"mortar":
+			var tube = cylinder(head, Vector3(0, 0.1, -0.38), 0.27, 1.14, frame)
+			tube.rotation.x = -0.68
+			var muzzle = cylinder(head, Vector3(0, 0.53, -0.73), 0.34, 0.12, steel)
+			muzzle.rotation.x = -0.68
+			box(head, Vector3(0, -0.38, 0.24), Vector3(0.82, 0.2, 0.64), steel)
+		"cryo":
+			for side in [-1, 1]:
+				horizontal_barrel(head, Vector3(side * 0.36, 0.02, -1.0), 0.1, 1.18, steel)
+				horizontal_barrel(head, Vector3(side * 0.36, 0.02, -1.62), 0.15, 0.1, color, 1.4)
+			horizontal_barrel(head, Vector3(0, 0.02, -1.15), 0.08, 1.2, Color("c7fbff"), 1.5)
+		_:
+			horizontal_barrel(head, Vector3(0, 0.02, -1.0), 0.18, 1.2, steel)
+			horizontal_barrel(head, Vector3(0, 0.02, -1.65), 0.23, 0.12, color, 1.0)
+
+func catalog_model(category: String, entry: Dictionary) -> Node3D:
+	var model = Node3D.new()
+	var id = str(entry.get("id", ""))
+	match category:
+		"Weapons":
+			if WEAPON_SHOWCASE.has(id):
+				var weapon = WEAPON_SHOWCASE[id].instantiate() as Node3D
+				weapon.rotation.y = PI
+				weapon.scale = Vector3.ONE * (0.65 if id in ["sniper", "lmg"] else 0.8)
+				model.add_child(weapon)
+			else:
+				build_blade_model(model, Color(entry.color))
+		"Enemies":
+			var enemy = MeshInstance3D.new()
+			enemy.mesh = enemy_mesh(id, Color(entry.color))
+			var enemy_surface = StandardMaterial3D.new()
+			enemy_surface.vertex_color_use_as_albedo = true
+			enemy_surface.roughness = 0.72
+			enemy_surface.metallic = 0.35
+			enemy.material_override = enemy_surface
+			model.add_child(enemy)
+		"Defenses": add_structure_visual(model, entry)
+		"Attachments": build_attachment_model(model, id)
+		"Equipment": build_equipment_model(model, id)
+		"Tiles": build_tile_model(model, id)
+		_:
+			model.free()
+			return null
+	return model
+
+func build_blade_model(parent: Node3D, color: Color) -> void:
+	box(parent, Vector3(0, -0.08, 0), Vector3(0.2, 0.28, 0.22), Color("263b43"))
+	box(parent, Vector3(0, 0.04, 0), Vector3(0.38, 0.07, 0.25), Color("819497"))
+	box(parent, Vector3(0, 0.42, 0), Vector3(0.16, 0.72, 0.08), color, 0.45)
+	box(parent, Vector3(0, 0.82, 0), Vector3(0.07, 0.1, 0.075), Color("d7fff0"), 0.75)
+
+func build_attachment_model(parent: Node3D, id: String) -> void:
+	var frame = Color("263841")
+	var steel = Color("85969b")
+	box(parent, Vector3(0, -0.3, 0), Vector3(1.22, 0.12, 0.54), frame)
+	match id:
+		"barrel":
+			horizontal_barrel(parent, Vector3(0, -0.02, -0.2), 0.19, 0.88, steel)
+			horizontal_barrel(parent, Vector3(0, -0.02, -0.69), 0.24, 0.12, Color("b0babc"))
+			for side in [-1, 1]: box(parent, Vector3(side * 0.24, -0.17, -0.3), Vector3(0.08, 0.2, 0.48), frame)
+		"optic":
+			horizontal_barrel(parent, Vector3(0, 0.05, -0.05), 0.19, 0.76, frame)
+			horizontal_barrel(parent, Vector3(0, 0.05, -0.46), 0.16, 0.1, Color("78cbd1"), 0.35)
+			box(parent, Vector3(0, -0.12, -0.02), Vector3(0.24, 0.22, 0.22), steel)
+		"magazine":
+			box(parent, Vector3(0, 0.0, -0.02), Vector3(0.43, 0.62, 0.48), Color("45575a"))
+			box(parent, Vector3(0, 0.0, -0.27), Vector3(0.28, 0.46, 0.035), Color("b48a50"))
+			box(parent, Vector3(0, 0.34, -0.02), Vector3(0.51, 0.1, 0.55), steel)
+		"grip":
+			var grip = box(parent, Vector3(0, -0.02, 0.0), Vector3(0.4, 0.58, 0.35), Color("43565c"))
+			grip.rotation.z = -0.22
+			box(parent, Vector3(0, 0.3, -0.06), Vector3(0.52, 0.14, 0.46), steel)
+		"elemental":
+			for side in [-1, 1]:
+				var coil = cylinder(parent, Vector3(side * 0.22, 0.08, 0), 0.13, 0.58, Color("d77f54"), 1.1)
+				coil.rotation.z = side * 0.2
+			box(parent, Vector3(0, 0.4, 0), Vector3(0.55, 0.1, 0.5), steel)
+
+func build_equipment_model(parent: Node3D, id: String) -> void:
+	var frame = Color("263841")
+	match id:
+		"armor":
+			box(parent, Vector3(0, 0.08, 0), Vector3(1.16, 0.86, 0.22), Color("66797e"))
+			box(parent, Vector3(0, 0.08, -0.13), Vector3(0.56, 0.58, 0.04), Color("c4a05f"))
+			for side in [-1, 1]:
+				box(parent, Vector3(side * 0.43, 0.08, -0.15), Vector3(0.06, 0.7, 0.04), frame)
+		"shield_pack":
+			box(parent, Vector3(0, 0.0, 0), Vector3(0.84, 0.82, 0.38), frame)
+			cylinder(parent, Vector3(0, 0.1, -0.23), 0.31, 0.16, Color("78c8f0"), 1.0)
+			for side in [-1, 1]: box(parent, Vector3(side * 0.35, 0.0, -0.22), Vector3(0.12, 0.56, 0.08), Color("8eb4bd"))
+		"medkit":
+			box(parent, Vector3(0, 0.0, 0), Vector3(0.9, 0.62, 0.6), Color("d9dfd4"))
+			box(parent, Vector3(0, 0.0, -0.31), Vector3(0.18, 0.42, 0.04), Color("d85f54"))
+			box(parent, Vector3(0, 0.0, -0.32), Vector3(0.42, 0.16, 0.04), Color("d85f54"))
+		"grenade":
+			cylinder(parent, Vector3(0, 0.0, 0), 0.28, 0.76, Color("596954"))
+			box(parent, Vector3(0, 0.42, 0), Vector3(0.22, 0.15, 0.16), Color("aab096"))
+			box(parent, Vector3(0.18, 0.36, 0), Vector3(0.3, 0.08, 0.08), Color("c5a46b"))
+		_:
+			box(parent, Vector3.ZERO, Vector3(0.8, 0.8, 0.3), frame)
+
+func build_tile_model(parent: Node3D, id: String) -> void:
+	var terrain_colors = {"concrete": Color("a6b0b7"), "grass": Color("344c3d"), "dirt": Color("5b4d40"), "sand": Color("8c7d56"), "road": Color("202d35"), "metal": Color("455963"), "stone": Color("8e9395"), "water": Color("174b65")}
+	if terrain_colors.has(id):
+		var floor_mesh = MeshInstance3D.new()
+		var slab = BoxMesh.new()
+		slab.size = Vector3(2.96, 0.15, 2.96)
+		floor_mesh.mesh = slab
+		floor_mesh.position.y = -0.075
+		if id == "water":
+			var water_surface = ShaderMaterial.new()
+			water_surface.shader = WATER_SHADER
+			floor_mesh.material_override = water_surface
+		else:
+			floor_mesh.material_override = material(terrain_colors[id])
+		parent.add_child(floor_mesh)
+		if id in ["metal", "grass"]:
+			var detail = MeshInstance3D.new()
+			detail.mesh = compose_mesh(terrain_detail_parts(id))
+			detail.material_override = decoration_material
+			detail.position.y = 0.006
+			parent.add_child(detail)
+		return
+	if id in game.world.WALLS:
+		var definition = game.world.WALL_DEFS[id]
+		var height = float(definition.height)
+		var color = Color(definition.color)
+		if id in ["ramp", "stairs"]:
+			for i in 6:
+				var step_height = (i + 1) / 6.0 * minf(1.4, height)
+				box(parent, Vector3(0, step_height * 0.5, -1.25 + i * 0.5), Vector3(3, step_height, 0.5), color)
+		elif id == "window":
+			box(parent, Vector3(0, 0.4, 0), Vector3(3, 0.8, 0.3), color)
+			box(parent, Vector3(0, height - 0.25, 0), Vector3(3, 0.5, 0.3), color)
+			for side in [-1, 1]:
+				box(parent, Vector3(side * 1.3, height * 0.5, 0), Vector3(0.4, height, 0.3), color)
+		else:
+			box(parent, Vector3(0, height * 0.5, 0), Vector3(3, minf(height, 3.2), 3), color)
+			box(parent, Vector3(0, minf(height, 3.2) - 0.08, -1.52), Vector3(2.7, 0.08, 0.03), Color("6796a0"), 0.2)
+		return
+	if id in game.world.HAZARDS:
+		var hazard_color = {"fire": Color("ff8245"), "acid": Color("9fcd61"), "spikes": Color("a1b4c0"), "electric": Color("6fbefa"), "slow": Color("89d9ea"), "mine": Color("e89c68")}.get(id, Color("a1b4c0"))
+		cylinder(parent, Vector3(0, 0.06, 0), 1.25, 0.12, hazard_color, 0.4)
+		for i in 4:
+			box(parent, Vector3((i % 2 - 0.5) * 1.2, 0.2, (i / 2 - 0.5) * 1.2), Vector3(0.15, 0.4, 0.15), hazard_color, 0.3)
+		return
+	if id in ["crate", "machinery", "pipe", "light", "vegetation", "debris"]:
+		var prop = MeshInstance3D.new()
+		prop.mesh = decoration_mesh(id)
+		prop.material_override = decoration_material
+		parent.add_child(prop)
+		return
+	if id in ["ceiling", "elevation"]:
+		box(parent, Vector3(0, 0.1, 0), Vector3(3, 0.25, 3), Color("384b59"))
+		return
+	var marker_color = Color("3c827d")
+	if id == "objective":
+		cylinder(parent, Vector3(0, 0.18, 0), 1.05, 0.35, Color("15222b"))
+		cylinder(parent, Vector3(0, 1.1, 0), 0.48, 1.8, Color("50e3ce"), 1.2)
+	elif id == "enemy":
+		marker_color = Color("e46e54")
+		cylinder(parent, Vector3(0, 0.08, 0), 1.25, 0.16, marker_color, 0.8)
+	elif id in ["tower_pad", "structure_pad", "pad"]:
+		cylinder(parent, Vector3(0, 0.06, 0), 1.1, 0.12, marker_color, 0.25)
+	else:
+		box(parent, Vector3(0, 0.55, 0), Vector3(1.4, 1.1, 1.2), Color("243e4c"))
+		box(parent, Vector3(0, 1.15, 0), Vector3(1, 0.2, 0.7), Color("f4bd69"), 0.6)
 
 func enemy(data: Dictionary) -> CharacterBody3D:
 	var body = CharacterBody3D.new()
@@ -886,6 +1224,7 @@ func _process(delta: float) -> void:
 		rain.speed_scale = 0
 		return
 	rain.speed_scale = 1
+	update_idle_turrets(delta)
 	rain.emitting = game.profile.data.settings.weather and weather != "Clear" and game.state == "wave"
 	if is_instance_valid(game.player):
 		rain.position = game.player.position + Vector3.UP * 13
