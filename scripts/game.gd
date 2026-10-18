@@ -161,6 +161,7 @@ func configure_input() -> void:
 	for pair in [["shoot", MOUSE_BUTTON_LEFT], ["aim", MOUSE_BUTTON_RIGHT]]:
 		if not InputMap.has_action(pair[0]):
 			InputMap.add_action(pair[0])
+		InputMap.action_erase_events(pair[0])
 		var event = InputEventMouseButton.new()
 		event.button_index = pair[1]
 		InputMap.action_add_event(pair[0], event)

@@ -213,6 +213,7 @@ func readout(parent: Node, title: String, value: String) -> void:
 	amount.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 
 func wipe() -> void:
+	if overlay != "settings": rebind_action = ""
 	for child in screen.get_children():
 		screen.remove_child(child)
 		child.queue_free()
@@ -256,6 +257,9 @@ func notify(text: String) -> void:
 func key_name(action: String) -> String:
 	var events = InputMap.action_get_events(action)
 	return events[0].as_text_physical_keycode() if not events.is_empty() and events[0] is InputEventKey else action
+
+func binding_name(action: String) -> String:
+	return {"sprint": "Dash", "crouch": "Crouch / slide / slam", "punch": "Punch / parry", "weapon1": "Primary weapon", "weapon2": "Secondary weapon", "interact": "Interact / collect", "ability": "Pulse", "restoration": "Restoration matrix"}.get(action, action.replace("_", " ").capitalize())
 
 func show_menu() -> void:
 	if game.state in ["results", "editor"]:
@@ -1002,21 +1006,19 @@ func show_settings() -> void:
 		resolutions.item_selected.connect(func(index): settings.resolution = index; game.apply_settings())
 		settings_col.add_child(resolutions)
 	if settings_section != "Controls": return
-	label(settings_col, "Select an action, then press a key. Escape cancels.", 16, Color("92abb8"))
+	label(settings_col, "Press a key for %s. Escape cancels." % binding_name(rebind_action) if rebind_action != "" else "Select an action, then press a key. Escape cancels.", 16, Color("e3bb7d") if rebind_action != "" else Color("92abb8"))
 	var key_col = GridContainer.new()
 	key_col.columns = 2
 	key_col.add_theme_constant_override("h_separation", 12)
 	key_col.add_theme_constant_override("v_separation", 8)
 	settings_col.add_child(key_col)
 	for action in ["forward", "back", "left", "right", "jump", "sprint", "crouch", "grapple", "punch", "reload", "interact", "ability", "restoration", "inventory", "planning", "next_wave", "weapon1", "weapon2", "heal", "grenade", "pause"]:
-		var events = InputMap.action_get_events(action)
-		var key = events[0].as_text_physical_keycode() if not events.is_empty() else "Unbound"
-		var action_name = "Dash" if action == "sprint" else ("Crouch / slide / slam" if action == "crouch" else ("Punch / parry" if action == "punch" else action.replace("_", " ").capitalize()))
-		var binding = button(key_col, action_name + " : " + key, func(): rebind_action = action; notify("Press a key for " + action_name + ". Escape cancels."))
+		var binding = button(key_col, binding_name(action) + " : " + ("Press a key…" if action == rebind_action else key_name(action)), func(): rebind_action = action; show_settings())
 		binding.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		binding.alignment = HORIZONTAL_ALIGNMENT_LEFT
 		binding.add_theme_font_size_override("font_size", 16)
-	button(settings_col, "Reset bindings", func(): settings.keys.clear(); game.configure_input(); show_settings())
+		if action == rebind_action: binding.modulate = Color("e3bb7d")
+	button(settings_col, "Reset bindings", func(): rebind_action = ""; settings.keys.clear(); game.configure_input(); show_settings())
 
 func show_credits() -> void:
 	overlay = "credits"
@@ -1039,8 +1041,15 @@ func show_credits() -> void:
 	body.add_child(content)
 
 func _input(event: InputEvent) -> void:
-	if rebind_action != "" and event is InputEventKey and event.pressed:
+	if overlay == "settings" and rebind_action != "" and event is InputEventKey and event.pressed and not event.echo:
 		if event.physical_keycode != KEY_ESCAPE:
+			for action in InputMap.get_actions():
+				if action == rebind_action or str(action).begins_with("ui_"): continue
+				for assigned in InputMap.action_get_events(action):
+					if assigned is InputEventKey and assigned.physical_keycode == event.physical_keycode:
+						notify("Key already used by %s. Choose another key; Escape cancels." % binding_name(action))
+						get_viewport().set_input_as_handled()
+						return
 			game.profile.data.settings.keys[rebind_action] = event.physical_keycode
 			game.configure_input()
 			notify("Binding updated.")
