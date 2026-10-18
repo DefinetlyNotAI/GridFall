@@ -18,6 +18,7 @@ var path = ""
 var status: Label
 var palette: OptionButton
 var tool_buttons: Dictionary = {}
+var clipboard_layer = ""
 var layers = ["ground", "structure", "height", "markers", "objects", "decoration", "lighting"]
 var authoring: Dictionary = {}
 
@@ -141,7 +142,25 @@ func update_palette() -> void:
 		"decoration": options = ["light", "vegetation", "crate", "debris", "pipe", "machinery"]
 		"lighting": options = ["light"]
 	for option in options: palette.add_item(option)
-	tile_type = options[0]
+	var selected_index = options.find(tile_type)
+	if selected_index < 0:
+		selected_index = 0
+		tile_type = options[0]
+	palette.select(selected_index)
+
+func _prepare_map_replacement() -> void:
+	undo_stack.clear()
+	redo_stack.clear()
+	corner = Vector2i(-1, -1)
+	selection_a = Vector2i(-1, -1)
+	selection_b = Vector2i(-1, -1)
+	clipboard.clear()
+	clipboard_layer = ""
+	tool = "Paint"
+	if is_instance_valid(grid):
+		grid.selection_start = Vector2i(-1, -1)
+		grid.selection_end = Vector2i(-1, -1)
+	_refresh_tool_buttons()
 
 func checkpoint() -> void:
 	undo_stack.append(game.world.map.duplicate(true))
@@ -187,6 +206,12 @@ func paint(p: Vector2i, erase: bool = false) -> void:
 func click(p: Vector2i, mouse_button: int, dragging: bool) -> void:
 	if not game.world.inside(p): return
 	if dragging and tool not in ["Paint", "Erase"]: return
+	if tool == "Paste" and clipboard.is_empty():
+		set_status("Copy a selection before pasting.")
+		return
+	if tool == "Paste" and clipboard_layer != layer:
+		set_status("Switch to %s to paste copied tiles." % clipboard_layer.capitalize())
+		return
 	if tool == "Inspect":
 		inspect(p)
 		return
@@ -236,6 +261,7 @@ func copy_selection() -> void:
 		set_status("Use Select and choose two corners first.")
 		return
 	clipboard.clear()
+	clipboard_layer = layer
 	for y in range(selection_a.y, selection_b.y + 1):
 		for x in range(selection_a.x, selection_b.x + 1):
 			var p = Vector2i(x, y)
@@ -626,7 +652,7 @@ func new_map_dialog() -> void:
 		body.add_child(input)
 		fields.append(input)
 	dialog.confirmed.connect(func():
-		checkpoint()
+		_prepare_map_replacement()
 		var value = game.world.preset()
 		value.id = "custom_" + str(Time.get_unix_time_from_system())
 		value.name = "Untitled world"
@@ -695,7 +721,7 @@ func generated_map_dialog() -> void:
 	body.add_child(style_picker)
 	dialog.confirmed.connect(func():
 		var value = game.world.generated(int(seed_input.value), int(width_input.value), int(height_input.value), style_picker.selected)
-		checkpoint()
+		_prepare_map_replacement()
 		game.world.load_map(value)
 		authoring = value.duplicate(true)
 		path = ""
@@ -726,7 +752,7 @@ func templates_dialog() -> void:
 	dialog.confirmed.connect(func():
 		var value = game.world.preset(picker.selected)
 		value.id = "custom_template_%s" % ["foundry", "relay", "crossroads"][picker.selected]
-		checkpoint()
+		_prepare_map_replacement()
 		game.world.load_map(value)
 		authoring = value.duplicate(true)
 		path = ""
@@ -794,7 +820,7 @@ func import_code(code: String) -> String:
 	imported.id = _stable_custom_id(str(imported.id), imported)
 	if not imported.get("author", "") is String or str(imported.get("author", "")).strip_edges().is_empty():
 		imported.author = "Community"
-	checkpoint()
+	_prepare_map_replacement()
 	game.world.load_map(imported)
 	authoring = game.world.map.duplicate(true)
 	path = ""
@@ -894,7 +920,7 @@ func load_map_dialog() -> void:
 		if not issues.is_empty():
 			set_status("Import rejected: " + "; ".join(issues.slice(0, 8)))
 		else:
-			checkpoint()
+			_prepare_map_replacement()
 			game.world.load_map(value)
 			authoring = game.world.map.duplicate(true)
 			path = selected_path
