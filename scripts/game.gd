@@ -1344,6 +1344,12 @@ func buy(id: String) -> void:
 		return
 	if not catalog.weapons.has(id) and id not in ["ammo", "core", "medkit", "grenade"]: return
 	if id == "core" and not repairs_allowed(): return
+	if id == "core" and core_health >= max_core:
+		ui.notify("Core integrity is already full.")
+		return
+	if id == "ammo" and not weapons.any(func(item): return item.id != "" and catalog.weapons[item.id].magazine > 0 and item.reserve < 9999):
+		ui.notify("No equipped firearm needs reserve ammunition.")
+		return
 	if id in ["medkit", "grenade"] and consumables[id] >= 99:
 		ui.notify("This consumable stack is full.")
 		return

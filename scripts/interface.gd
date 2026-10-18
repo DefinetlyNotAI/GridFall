@@ -756,7 +756,9 @@ func show_shop() -> void:
 	section(supplies, "FIELD SUPPLIES")
 	for pair in [["ammo", "Ammunition · refill reserves"], ["medkit", "Medkit · restore 50 health"], ["grenade", "Grenade · 120 area damage"], ["core", "Core service · restore 120 HP"]]:
 		label(supplies, pair[1], 19)
-		button(supplies, "Purchase / %d scrap" % game.supply_cost(pair[0]), func(): game.buy(pair[0]), game.scrap < game.supply_cost(pair[0]) or (pair[0] == "core" and not game.repairs_allowed()))
+		var full = (pair[0] == "core" and game.core_health >= game.max_core) or (pair[0] in ["medkit", "grenade"] and game.consumables[pair[0]] >= 99)
+		if pair[0] == "ammo": full = not game.weapons.any(func(item): return item.id != "" and game.catalog.weapons[item.id].magazine > 0 and item.reserve < 9999)
+		button(supplies, "Not needed" if full else "Purchase / %d scrap" % game.supply_cost(pair[0]), func(): game.buy(pair[0]), full or game.scrap < game.supply_cost(pair[0]) or (pair[0] == "core" and not game.repairs_allowed()))
 	if not game.repairs_allowed(): label(supplies, "Core service is disabled by this run's rules.", 15, Color("e3bb7d"))
 	var weapons = scroll_column(content, 12)
 	section(weapons, "COMMON WEAPONS")
@@ -764,7 +766,8 @@ func show_shop() -> void:
 		var definition = game.catalog.weapons[id]
 		var item = row(weapons)
 		label(item, definition.name, 19).size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		button(item, "%d scrap" % game.supply_cost(id) if game.unlocked(definition) else "Locked", func(): game.buy(id), not game.unlocked(definition) or game.scrap < game.supply_cost(id))
+		var full = game.backpack.size() >= game.capacity
+		button(item, "Locked" if not game.unlocked(definition) else ("Backpack full" if full else "%d scrap" % game.supply_cost(id)), func(): game.buy(id), full or not game.unlocked(definition) or game.scrap < game.supply_cost(id))
 	label(weapons, "Purchases go to your backpack. Manage equipment in Inventory.", 15, Color("92abb8"))
 
 func show_pause() -> void:
