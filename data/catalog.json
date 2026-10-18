@@ -1059,7 +1059,7 @@
     {
       "id": "ballistics_ricochet",
       "name": "Deflection Rounds",
-      "description": "Add 10.0% chance per rank for missed shots to ricochet once.",
+      "description": "Add 10% chance per rank for hitscan shots hitting scenery to ricochet once at 65% damage.",
       "branch": "Ballistics",
       "tier": 3,
       "cost": 195,
@@ -1199,7 +1199,7 @@
     {
       "id": "ballistics_bankshot",
       "name": "Bank Shot Geometry",
-      "description": "Add 15.0% chance per rank for missed shots to ricochet once.",
+      "description": "Add 15% chance per rank for hitscan shots hitting scenery to ricochet once at 65% damage.",
       "branch": "Ballistics",
       "tier": 7,
       "cost": 335,
@@ -1919,7 +1919,7 @@
     {
       "id": "biotechnology_combat_stimulant",
       "name": "Combat Stimulant",
-      "description": "Restore 1% of damage dealt as health per rank.",
+      "description": "Restore 1% of direct weapon damage dealt as health per rank.",
       "branch": "Biotechnology",
       "tier": 1,
       "cost": 125,
@@ -2079,7 +2079,7 @@
     {
       "id": "biotechnology_predator_strain",
       "name": "Predator Strain",
-      "description": "Restore 1.5% of damage dealt as health per rank.",
+      "description": "Restore 1.5% of direct weapon damage dealt as health per rank.",
       "branch": "Biotechnology",
       "tier": 5,
       "cost": 265,
@@ -2599,7 +2599,7 @@
     {
       "id": "logistics_scrap_refinery",
       "name": "Scrap Refinery",
-      "description": "Increase structure production by 8% per rank.",
+      "description": "Increase generator scrap output by 8% and tower-kill scrap by 1.6% per rank.",
       "branch": "Logistics",
       "tier": 2,
       "cost": 160,
@@ -2739,7 +2739,7 @@
     {
       "id": "logistics_automated_refining",
       "name": "Automated Refining",
-      "description": "Increase structure production by 10% per rank.",
+      "description": "Increase generator scrap output by 10% and tower-kill scrap by 2% per rank.",
       "branch": "Logistics",
       "tier": 5,
       "cost": 265,
@@ -2839,7 +2839,7 @@
     {
       "id": "logistics_production_lines",
       "name": "Production Lines",
-      "description": "Increase structure production by 12% per rank.",
+      "description": "Increase generator scrap output by 12% and tower-kill scrap by 2.4% per rank.",
       "branch": "Logistics",
       "tier": 9,
       "cost": 405,
