@@ -1022,13 +1022,15 @@ func show_settings() -> void:
 		spin.value = settings[entry[0]]
 		spin.value_changed.connect(func(value): settings[entry[0]] = value; game.apply_settings())
 		line.add_child(spin)
-	for entry in [["fullscreen", "Fullscreen", "Display"], ["vsync", "VSync", "Display"], ["crosshair", "Crosshair", "Display"], ["shake", "Camera recoil", "Gameplay"], ["adaptive", "Adaptive factions for new runs", "Gameplay"], ["weather", "Weather visuals", "Display"], ["camera_motion", "Head bob, landing feedback and weapon sway", "Gameplay"], ["movement_effects", "Speed lines, movement FOV and camera tilt", "Gameplay"], ["stamina", "Slide stamina", "Gameplay"]]:
+	for entry in [["muted", "Mute all audio", "Audio"], ["fullscreen", "Fullscreen", "Display"], ["vsync", "VSync", "Display"], ["crosshair", "Crosshair", "Display"], ["shake", "Camera recoil", "Gameplay"], ["adaptive", "Adaptive factions for new runs", "Gameplay"], ["weather", "Weather visuals", "Display"], ["camera_motion", "Head bob, landing feedback and weapon sway", "Gameplay"], ["movement_effects", "Speed lines, movement FOV and camera tilt", "Gameplay"], ["stamina", "Slide stamina", "Gameplay"]]:
 		if entry[2] != settings_section: continue
 		var check = CheckButton.new()
 		check.text = entry[1]
 		check.button_pressed = settings[entry[0]]
 		check.toggled.connect(func(value): settings[entry[0]] = value; game.apply_settings())
 		settings_col.add_child(check)
+	if settings_section == "Audio":
+		label(settings_col, "Audio is always muted while the game is in the background.", 16, Color("92abb8"))
 	if settings_section == "Gameplay":
 		label(settings_col, "The active cap limits simulated actors; remaining enemies stay queued. Adaptive factions apply to new runs. Slide stamina is separate from the three dash/slam bars.", 16, Color("92abb8"))
 	if settings_section == "Display":

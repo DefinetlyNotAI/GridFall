@@ -7,6 +7,7 @@ var music: AudioStreamPlayer
 var ui_voice: AudioStreamPlayer
 var cooldown = 0.0
 var variation_rng = RandomNumberGenerator.new()
+var window_focused = true
 
 func setup(owner_game) -> void:
 	game = owner_game
@@ -37,8 +38,9 @@ func setup(owner_game) -> void:
 	stream.data = bytes
 	music.stream = stream
 	add_child(music)
-	if DisplayServer.get_name() != "headless": music.play()
+	window_focused = DisplayServer.get_name() != "headless" and DisplayServer.window_is_focused()
 	apply_volume()
+	if DisplayServer.get_name() != "headless": music.play()
 
 func synth(kind: String) -> AudioStreamWAV:
 	var duration = 0.12
@@ -94,11 +96,24 @@ func synth(kind: String) -> AudioStreamWAV:
 	return stream
 
 func apply_volume() -> void:
+	AudioServer.set_bus_mute(0, bool(game.profile.data.settings.get("muted", true)) or not window_focused)
 	if music:
 		music.volume_db = linear_to_db(maxf(0.0001, game.profile.data.settings.music))
 
+func _notification(what: int) -> void:
+	if game == null: return
+	if what == NOTIFICATION_APPLICATION_FOCUS_OUT:
+		window_focused = false
+		apply_volume()
+	elif what == NOTIFICATION_APPLICATION_FOCUS_IN:
+		window_focused = true
+		apply_volume()
+
+func is_muted() -> bool:
+	return AudioServer.is_bus_mute(0)
+
 func cue(kind: String, pos: Vector3 = Vector3.ZERO, volume: float = 0.7) -> void:
-	if DisplayServer.get_name() == "headless": return
+	if DisplayServer.get_name() == "headless" or is_muted(): return
 	if not streams.has(kind):
 		return
 	if kind == "ui":
