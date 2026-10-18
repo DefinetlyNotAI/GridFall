@@ -87,6 +87,23 @@ func setup(owner_game) -> void:
 	theme.set_stylebox("panel", "PanelContainer", panel_style)
 	theme.set_stylebox("panel", "PopupMenu", panel_style.duplicate())
 	theme.set_stylebox("normal", "LineEdit", panel_style.duplicate())
+	var dialog_panel = panel_style.duplicate()
+	dialog_panel.bg_color = Color("101e27")
+	theme.set_stylebox("panel", "AcceptDialog", dialog_panel)
+	theme.set_stylebox("panel", "ItemList", dialog_panel.duplicate())
+	theme.set_stylebox("normal", "TextEdit", dialog_panel.duplicate())
+	theme.set_stylebox("read_only", "TextEdit", dialog_panel.duplicate())
+	var dialog_border = StyleBoxFlat.new()
+	dialog_border.bg_color = Color("172b38")
+	dialog_border.border_color = Color("3b5b68")
+	dialog_border.set_border_width_all(1)
+	dialog_border.expand_margin_left = 8
+	dialog_border.expand_margin_right = 8
+	dialog_border.expand_margin_top = 32
+	dialog_border.expand_margin_bottom = 8
+	theme.set_stylebox("embedded_border", "Window", dialog_border)
+	theme.set_stylebox("embedded_unfocused_border", "Window", dialog_border.duplicate())
+	theme.set_color("title_color", "Window", Color("d5e2e8"))
 	theme.set_color("font_color", "PopupMenu", Color("d5e2e8"))
 	theme.set_color("font_hover_color", "PopupMenu", Color("ffffff"))
 	var menu_hover = StyleBoxFlat.new()

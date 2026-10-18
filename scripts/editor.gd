@@ -531,7 +531,7 @@ func evolution_events_dialog() -> void:
 	dialog.confirmed.connect(func(): dialog.queue_free())
 	dialog.canceled.connect(func(): dialog.queue_free())
 	ui.root.add_child(dialog)
-	dialog.popup_centered(Vector2i(560, 330))
+	dialog.popup_centered(Vector2i(560, 420))
 
 func _coordinate_list_text(values: Array) -> String:
 	var lines = PackedStringArray()
@@ -711,7 +711,7 @@ func generated_map_dialog() -> void:
 	dialog.wrap_controls = false
 	dialog.theme = ui.root.theme
 	var body = ui.column(dialog)
-	ui.label(body, "Create a seeded layout. The current map can be restored with Undo.", 16)
+	ui.label(body, "Create a seeded layout. Save the current map before replacing it.", 16)
 	var seed_input = SpinBox.new()
 	seed_input.min_value = -2147483647
 	seed_input.max_value = 2147483647
@@ -752,7 +752,7 @@ func generated_map_dialog() -> void:
 		dialog.queue_free())
 	dialog.canceled.connect(func(): dialog.queue_free())
 	ui.root.add_child(dialog)
-	dialog.popup_centered(Vector2i(480, 450))
+	dialog.popup_centered(Vector2i(480, 560))
 
 func templates_dialog() -> void:
 	var dialog = ConfirmationDialog.new()
@@ -760,21 +760,16 @@ func templates_dialog() -> void:
 	dialog.wrap_controls = false
 	dialog.theme = ui.root.theme
 	var body = ui.column(dialog)
-	ui.label(body, "Choose a starter world. The current map can be restored with Undo.", 16)
+	ui.label(body, "Choose a starter world. Save the current map before replacing it.", 16)
 	var picker = OptionButton.new()
 	for template_name in game.World.LEVEL_NAMES:
 		picker.add_item(template_name)
 	body.add_child(picker)
-	var descriptions = [
-		"Three approaches around a central objective, with gates that open over time.",
-		"Fortified lanes shape the first approaches and leave a central route open.",
-		"A greenbelt layout with open road axes and protected side lanes."
-	]
-	var description = ui.label(body, descriptions[0], 16, Color("93afbd"))
-	picker.item_selected.connect(func(index): description.text = descriptions[index])
+	var description = ui.label(body, game.world.preset(0).description, 16, Color("93afbd"))
+	picker.item_selected.connect(func(index): description.text = game.world.preset(index).description)
 	dialog.confirmed.connect(func():
 		var value = game.world.preset(picker.selected)
-		value.id = "custom_template_%s" % ["foundry", "relay", "crossroads"][picker.selected]
+		value.id = "custom_template_" + str(value.id)
 		_prepare_map_replacement()
 		game.world.load_map(value)
 		authoring = value.duplicate(true)
@@ -783,7 +778,7 @@ func templates_dialog() -> void:
 		dialog.queue_free())
 	dialog.canceled.connect(func(): dialog.queue_free())
 	ui.root.add_child(dialog)
-	dialog.popup_centered(Vector2i(520, 260))
+	dialog.popup_centered(Vector2i(520, 340))
 
 func _share_code_text() -> String:
 	var issues = game.world.validate(game.world.map, true)
