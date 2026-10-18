@@ -97,64 +97,7 @@ func inside(p: Vector2i) -> bool:
 
 func preset(index: int = 0, seed_value: int = 104729) -> Dictionary:
 	index = posmod(index, LEVEL_NAMES.size())
-	if index >= 3: return Levels.authored(self, index - 3, seed_value)
-	var width = 25
-	var height = 25
-	var layers = {"ground": {}, "structure": {}, "height": {}, "markers": {}, "objects": {}, "decoration": {}, "lighting": {}}
-	var build: Array = []
-	for y in height:
-		for x in width:
-			var p = Vector2i(x, y)
-			var key = cell_key(p)
-			var terrain = "road" if x == 12 or y == 12 else "concrete"
-			if index == 1:
-				terrain = "road" if x == 12 or y == 12 else "metal"
-			elif index == 2:
-				terrain = "road" if x == 12 or y == 12 else ("grass" if (x + y) % 3 != 0 else "dirt")
-			layers.ground[key] = {"type": terrain, "rotation": 0}
-			if x == 0 or y == 0 or x == width - 1 or y == height - 1:
-				layers.structure[key] = {"type": "permanent", "health": 0, "height": 3.5}
-			elif x > 2 and y > 2 and x < 22 and y < 22 and p.distance_to(Vector2i(12, 12)) > 2 and x != 12 and y != 12:
-				build.append(key)
-	for x in [7, 17]:
-		for y in range(6, 19):
-			if y in [9, 12, 15]:
-				continue
-			var key = cell_key(Vector2i(x, y))
-			layers.structure[key] = {"type": "permanent", "height": 2.8, "health": 0}
-			build.erase(key)
-	if index == 1:
-		for y in [7, 17]:
-			for x in range(8, 17):
-				if x in [11, 12, 13]: continue
-				var key = cell_key(Vector2i(x, y))
-				layers.structure[key] = {"type": "permanent", "height": 2.8, "health": 0}
-				build.erase(key)
-	elif index == 2:
-		for x in [4, 20]:
-			for y in range(5, 20):
-				if y in [11, 12, 13]: continue
-				var key = cell_key(Vector2i(x, y))
-				layers.structure[key] = {"type": "permanent", "height": 2.8, "health": 0}
-				build.erase(key)
-	layers.markers["12,14"] = {"type": "player"}
-	layers.markers["12,12"] = {"type": "objective"}
-	layers.markers["12,1"] = {"type": "enemy"}
-	layers.markers["2,12"] = {"type": "enemy", "unlock": 4}
-	layers.markers["22,12"] = {"type": "enemy", "unlock": 8}
-	layers.objects["11,14"] = {"type": "supply"}
-	layers.objects["13,14"] = {"type": "shop"}
-	for key in ["11,14", "13,14", "3,11", "3,13", "21,11", "21,13"]: build.erase(key)
-	layers.structure["2,12"] = {"type": "gate", "height": 3.0, "health": 0, "locked": true}
-	layers.structure["22,12"] = {"type": "gate", "height": 3.0, "health": 0, "locked": true}
-	var names = ["The Foundry", "Relay Station", "Crossroads"]
-	var descriptions = [
-		"An industrial crossroad. West opens after wave 4; east after wave 8.",
-		"A fortified relay station with gated side approaches.",
-		"A greenbelt split by open roads and low cover."
-	]
-	var ids = ["foundry", "relay", "crossroads"]
-	return {"version": 2, "id": ids[index % ids.size()], "name": names[index % names.size()], "description": descriptions[index % descriptions.size()], "author": "GRIDFALL", "width": width, "height": height, "seed": seed_value, "theme": index, "rules": default_rules(), "layers": layers, "build": build, "events": [{"id": "west", "round": 4, "remove": ["2,12"], "build": ["3,11", "3,13"], "message": "West gate opened. A second approach is active."}, {"id": "east", "round": 8, "remove": ["22,12"], "build": ["21,11", "21,13"], "message": "East gate opened. Defend all three approaches."}]}
+	return Levels.authored(self, index, seed_value)
 
 func generated(seed_value: int, width: int = 33, height: int = 33, style: int = 0) -> Dictionary:
 	var map_width = clampi(width, 8, 96)
@@ -289,6 +232,7 @@ func fixed_solid(p: Vector2i) -> bool:
 		return true
 	if not map.layers.ground.has(cell_key(p)): return true
 	var key = cell_key(p)
+	if map.layers.decoration.get(key, {}).get("type", "") in ["crate", "machinery", "pipe"]: return true
 	if map.layers.objects.has(key) and map.layers.objects[key].type not in HAZARDS: return true
 	if map.layers.markers.get(key, {}).get("type") in ["supply", "upgrade", "ammo", "generator", "chest", "shop"]: return true
 	var tile = map.layers.structure.get(key, {})

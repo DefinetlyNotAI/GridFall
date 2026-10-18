@@ -19,7 +19,11 @@ var post: ColorRect
 var impacts: Array = []
 var floor_normal: NoiseTexture2D
 var enemy_meshes: Dictionary = {}
+var decoration_meshes: Dictionary = {}
 var enemy_material: StandardMaterial3D
+var decoration_material: StandardMaterial3D
+var unit_box_mesh: BoxMesh
+var unit_cylinder_mesh: CylinderMesh
 const FLOOR_COLOR = preload("res://assets/materials/floor_diff.jpg")
 const FLOOR_NORMAL = preload("res://assets/materials/floor_nor_gl.jpg")
 const FLOOR_ROUGHNESS = preload("res://assets/materials/floor_rough.jpg")
@@ -72,9 +76,74 @@ func collision(parent: CollisionObject3D, size: Vector3, offset: Vector3) -> voi
 	shape.position = offset
 	parent.add_child(shape)
 
+func cylinder_collision(parent: CollisionObject3D, radius: float, height: float, offset: Vector3) -> void:
+	var shape = CollisionShape3D.new()
+	var cylinder_shape = CylinderShape3D.new()
+	cylinder_shape.radius = radius
+	cylinder_shape.height = height
+	shape.shape = cylinder_shape
+	shape.position = offset
+	parent.add_child(shape)
+
+func rotated_box_collision(parent: CollisionObject3D, size: Vector3, offset: Vector3, rotation_degrees: float) -> void:
+	var shape = CollisionShape3D.new()
+	var box_shape = BoxShape3D.new()
+	box_shape.size = size
+	shape.shape = box_shape
+	shape.position = offset
+	shape.rotation_degrees.y = rotation_degrees
+	parent.add_child(shape)
+
+func add_visual_part(parts: Array, position: Vector3, size: Vector3, color: Color, shape: String = "box", rotation: Vector3 = Vector3.ZERO) -> void:
+	parts.append({"shape": shape, "position": position, "size": size, "color": color, "rotation": rotation})
+
+func compose_mesh(parts: Array) -> ArrayMesh:
+	var builder = SurfaceTool.new()
+	builder.begin(Mesh.PRIMITIVE_TRIANGLES)
+	for part in parts:
+		var primitive: Mesh = unit_box_mesh if part.shape == "box" else unit_cylinder_mesh
+		var arrays = primitive.surface_get_arrays(0)
+		var vertices: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+		var normals: PackedVector3Array = arrays[Mesh.ARRAY_NORMAL]
+		var uvs: PackedVector2Array = arrays[Mesh.ARRAY_TEX_UV]
+		var indices: PackedInt32Array = arrays[Mesh.ARRAY_INDEX]
+		var part_basis = Basis.from_euler(part.rotation)
+		for index in indices:
+			var vertex = vertices[index] * part.size
+			var normal = Vector3(normals[index].x / part.size.x, normals[index].y / part.size.y, normals[index].z / part.size.z)
+			builder.set_color(part.color)
+			builder.set_normal((part_basis * normal).normalized())
+			builder.set_uv(uvs[index])
+			builder.add_vertex(part.position + part_basis * vertex)
+	builder.index()
+	return builder.commit()
+
+func add_multimesh(parent: Node3D, mesh: Mesh, transforms: Array, mat: Material) -> void:
+	if transforms.is_empty(): return
+	var instances = MultiMesh.new()
+	instances.transform_format = MultiMesh.TRANSFORM_3D
+	instances.mesh = mesh
+	instances.instance_count = transforms.size()
+	for i in transforms.size(): instances.set_instance_transform(i, transforms[i])
+	var multi = MultiMeshInstance3D.new()
+	multi.multimesh = instances
+	multi.material_override = mat
+	multi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	parent.add_child(multi)
+
 func setup(owner_game) -> void:
 	game = owner_game
 	effects_rng.randomize()
+	unit_box_mesh = BoxMesh.new()
+	unit_cylinder_mesh = CylinderMesh.new()
+	unit_cylinder_mesh.top_radius = 0.5
+	unit_cylinder_mesh.bottom_radius = 0.5
+	unit_cylinder_mesh.height = 1.0
+	unit_cylinder_mesh.radial_segments = 8
+	decoration_material = StandardMaterial3D.new()
+	decoration_material.vertex_color_use_as_albedo = true
+	decoration_material.roughness = 0.78
+	decoration_material.metallic = 0.28
 	floor_normal = NoiseTexture2D.new()
 	floor_normal.width = 128
 	floor_normal.height = 128
@@ -206,11 +275,16 @@ func rebuild() -> void:
 					collision(floor_body, Vector3((x - start) * 3, 0.4, 3), Vector3((start + x) * 1.5, -0.2, (y + 0.5) * 3))
 					start = -1
 	var terrain_colors = {"concrete": Color("303e48"), "grass": Color("344c3d"), "dirt": Color("5b4d40"), "sand": Color("8c7d56"), "road": Color("202d35"), "metal": Color("344a55"), "stone": Color("4f5358"), "water": Color("174b65")}
+	var terrain_details = {"metal": [], "water": [], "grass": []}
 	for terrain in terrain_colors:
 		var cells: Array = []
 		for key in world.map.layers.ground:
 			if world.map.layers.ground[key].type == terrain:
 				cells.append(world.point(key))
+				if terrain_details.has(terrain):
+					var tile: Dictionary = world.map.layers.ground[key]
+					var basis = Basis(Vector3.UP, deg_to_rad(float(tile.get("rotation", 0))))
+					terrain_details[terrain].append(Transform3D(basis, world.position(world.point(key), 0.006)))
 		if cells.is_empty():
 			continue
 		var multi = MultiMeshInstance3D.new()
@@ -224,20 +298,34 @@ func rebuild() -> void:
 			mm.set_instance_transform(i, Transform3D(Basis(), world.position(cells[i], -0.075)))
 		multi.multimesh = mm
 		multi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-		multi.material_override = material(terrain_colors[terrain]).duplicate()
-		multi.material_override.normal_enabled = true
-		multi.material_override.normal_texture = floor_normal
-		multi.material_override.normal_scale = 0.2
+		var ground_material: StandardMaterial3D = material(terrain_colors[terrain]).duplicate()
+		ground_material.normal_enabled = true
+		ground_material.normal_texture = floor_normal
+		ground_material.normal_scale = 0.32
+		ground_material.roughness = 0.92
+		ground_material.metallic = 0
+		if terrain == "metal":
+			ground_material.albedo_color = Color("455963")
+			ground_material.metallic = 0.62
+			ground_material.roughness = 0.48
+		elif terrain == "water":
+			ground_material.metallic = 0.2
+			ground_material.roughness = 0.3
+			ground_material.normal_scale = 0.55
 		if terrain in ["concrete", "stone"]:
-			multi.material_override.albedo_color = Color("a6b0b7") if terrain == "concrete" else Color("8e9395")
-			multi.material_override.albedo_texture = FLOOR_COLOR
-			multi.material_override.normal_texture = FLOOR_NORMAL
-			multi.material_override.normal_scale = 0.7
-			multi.material_override.roughness_texture = FLOOR_ROUGHNESS
-			multi.material_override.roughness = 1
-			multi.material_override.metallic = 0
-			multi.material_override.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
+			ground_material.albedo_color = Color("a6b0b7") if terrain == "concrete" else Color("8e9395")
+			ground_material.albedo_texture = FLOOR_COLOR
+			ground_material.normal_texture = FLOOR_NORMAL
+			ground_material.normal_scale = 0.7
+			ground_material.roughness_texture = FLOOR_ROUGHNESS
+			ground_material.roughness = 1
+			ground_material.metallic = 0
+			ground_material.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
+		multi.material_override = ground_material
 		geometry.add_child(multi)
+	for terrain in terrain_details:
+		if not terrain_details[terrain].is_empty():
+			add_multimesh(geometry, compose_mesh(terrain_detail_parts(terrain)), terrain_details[terrain], decoration_material)
 	road_markings()
 	for key in world.map.layers.structure:
 		fixed_tile(key)
@@ -287,15 +375,47 @@ func rebuild() -> void:
 		collision(object_body, Vector3(1.4, 1.3, 1.2), Vector3(0, 0.65, 0))
 		box(object_body, Vector3(0, 0.55, 0), Vector3(1.4, 1.1, 1.2), Color("243e4c"))
 		box(object_body, Vector3(0, 1.15, 0), Vector3(1, 0.2, 0.7), Color("f4bd69") if tile.type == "shop" else Color("50d9ce"), 0.8)
+		match tile.type:
+			"chest", "supply":
+				for x in [-0.45, 0.45]: box(object_body, Vector3(x, 0.55, -0.62), Vector3(0.1, 1.0, 0.04), Color("d4b782"))
+				box(object_body, Vector3(0, 0.55, -0.64), Vector3(0.38, 0.1, 0.04), Color("7ed9cb"), 0.3)
+				box(object_body, Vector3(0, 0.55, -0.64), Vector3(0.1, 0.38, 0.04), Color("7ed9cb"), 0.3)
+			"ammo":
+				for x in [-0.4, 0.0, 0.4]: cylinder(object_body, Vector3(x, 0.72, -0.62), 0.1, 0.55, Color("d4b782"))
+			"generator":
+				for x in [-0.45, 0.0, 0.45]: box(object_body, Vector3(x, 0.65, -0.63), Vector3(0.14, 0.6, 0.05), Color("79c9b6"), 0.3)
+			"shop", "upgrade":
+				box(object_body, Vector3(0, 0.78, -0.63), Vector3(1.0, 0.45, 0.04), Color("112630"))
+				box(object_body, Vector3(0, 0.78, -0.66), Vector3(0.65, 0.05, 0.02), Color("f4bd69"), 0.5)
+	var decoration_transforms = {"vegetation": [], "debris": [], "crate": [], "pipe": [], "machinery": [], "light": []}
+	var solid_decorations = StaticBody3D.new()
+	solid_decorations.collision_layer = 1
+	solid_decorations.collision_mask = 0
+	var has_solid_decoration = false
 	for key in world.map.layers.decoration:
-		var tile = world.map.layers.decoration[key]
+		var tile: Dictionary = world.map.layers.decoration[key]
+		var kind: String = tile.type
+		if not decoration_transforms.has(kind): continue
+		var rotation = float(tile.get("rotation", 0))
 		var pos = world.position(world.point(key), float(tile.get("elevation", 0)))
-		if tile.type == "vegetation":
-			cylinder(geometry, pos + Vector3.UP * 0.6, 0.7, 1.2, Color("4e7660"))
-		elif tile.type in ["pipe", "light"]:
-			cylinder(geometry, pos + Vector3.UP, 0.2, 2, Color("6c8896"), 0.4 if tile.type == "light" else 0)
-		else:
-			box(geometry, pos + Vector3.UP * 0.5, Vector3(1.3, 1, 1.3), Color("52616b"))
+		var basis = Basis(Vector3.UP, deg_to_rad(rotation))
+		decoration_transforms[kind].append(Transform3D(basis, pos))
+		if kind == "crate":
+			has_solid_decoration = true
+			rotated_box_collision(solid_decorations, Vector3(1.3, 0.9, 1.3), pos + Vector3.UP * 0.45, rotation)
+		elif kind == "machinery":
+			has_solid_decoration = true
+			rotated_box_collision(solid_decorations, Vector3(1.35, 1.4, 1.35), pos + Vector3.UP * 0.7, rotation)
+		elif kind == "pipe":
+			has_solid_decoration = true
+			cylinder_collision(solid_decorations, 0.24, 2.0, pos + Vector3.UP)
+	if has_solid_decoration:
+		geometry.add_child(solid_decorations)
+	else:
+		solid_decorations.free()
+	for kind in decoration_transforms:
+		if not decoration_transforms[kind].is_empty():
+			add_multimesh(geometry, decoration_mesh(kind), decoration_transforms[kind], decoration_material)
 	for key in world.map.layers.lighting:
 		var tile: Dictionary = world.map.layers.lighting[key]
 		var light = OmniLight3D.new()
@@ -393,6 +513,83 @@ func road_markings() -> void:
 	markings.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	geometry.add_child(markings)
 
+func terrain_detail_parts(terrain: String) -> Array:
+	var parts: Array = []
+	if terrain == "metal":
+		add_visual_part(parts, Vector3(0, 0.014, 0), Vector3(2.72, 0.025, 2.72), Color("273942"))
+		add_visual_part(parts, Vector3(0, 0.031, 0), Vector3(2.56, 0.018, 2.56), Color("506773"))
+		for edge in [-1, 1]:
+			add_visual_part(parts, Vector3(edge * 0.72, 0.043, 0), Vector3(0.025, 0.008, 2.48), Color("31464f"))
+			add_visual_part(parts, Vector3(0, 0.043, edge * 0.72), Vector3(2.48, 0.008, 0.025), Color("31464f"))
+		for x in [-1.12, 1.12]:
+			for z in [-1.12, 1.12]:
+				add_visual_part(parts, Vector3(x, 0.055, z), Vector3(0.075, 0.035, 0.075), Color("a7b7b7"), "cylinder")
+	elif terrain == "water":
+		for i in 4:
+			var x = -0.9 + i * 0.55
+			var z = -0.8 + (i % 2) * 0.75
+			add_visual_part(parts, Vector3(x, 0.008, z), Vector3(0.62, 0.01, 0.035), Color("3d8494"))
+			add_visual_part(parts, Vector3(x + 0.18, 0.009, z + 0.07), Vector3(0.22, 0.01, 0.025), Color("6bb4bd"))
+	elif terrain == "grass":
+		for i in 3:
+			var x = -0.68 + i * 0.36
+			var z = 0.52 - (i % 2) * 0.42
+			add_visual_part(parts, Vector3(x, 0.13, z), Vector3(0.055, 0.25, 0.045), Color("66865d"), "box", Vector3(0, 0, -0.24 + i * 0.18))
+			add_visual_part(parts, Vector3(x + 0.06, 0.1, z - 0.04), Vector3(0.045, 0.2, 0.04), Color("8a9e62"), "box", Vector3(0.12, 0, 0.22 - i * 0.12))
+	return parts
+
+func decoration_mesh(kind: String) -> ArrayMesh:
+	if decoration_meshes.has(kind): return decoration_meshes[kind]
+	var parts: Array = []
+	var frame = Color("354751")
+	var metal = Color("718793")
+	match kind:
+		"crate":
+			add_visual_part(parts, Vector3(0, 0.45, 0), Vector3(1.14, 0.78, 1.14), Color("705540"))
+			add_visual_part(parts, Vector3(0, 0.08, 0), Vector3(1.22, 0.12, 1.22), frame)
+			add_visual_part(parts, Vector3(0, 0.85, 0), Vector3(1.22, 0.08, 1.22), frame)
+			for side in [-1, 1]:
+				add_visual_part(parts, Vector3(side * 0.53, 0.46, 0), Vector3(0.1, 0.78, 1.2), metal)
+				add_visual_part(parts, Vector3(0, 0.46, side * 0.53), Vector3(1.2, 0.78, 0.1), metal)
+				add_visual_part(parts, Vector3(side * 0.24, 0.45, -0.586), Vector3(0.075, 0.66, 0.035), Color("b5844b"), "box", Vector3(0, 0, side * 0.5))
+			add_visual_part(parts, Vector3(0, 0.46, -0.59), Vector3(0.75, 0.075, 0.035), Color("b5844b"))
+		"machinery":
+			add_visual_part(parts, Vector3(0, 0.62, 0), Vector3(1.25, 1.22, 1.24), Color("364b54"))
+			add_visual_part(parts, Vector3(0, 1.27, 0), Vector3(1.34, 0.12, 1.32), metal)
+			add_visual_part(parts, Vector3(0, 0.7, -0.642), Vector3(0.82, 0.46, 0.045), Color("1e3038"))
+			add_visual_part(parts, Vector3(0, 0.7, -0.672), Vector3(0.56, 0.05, 0.025), Color("59c5bf"))
+			for side in [-1, 1]:
+				add_visual_part(parts, Vector3(side * 0.34, 0.84, -0.679), Vector3(0.11, 0.11, 0.035), Color("e9b967"), "cylinder")
+				add_visual_part(parts, Vector3(side * 0.4, 1.02, 0.22), Vector3(0.12, 0.48, 0.12), frame, "cylinder")
+				add_visual_part(parts, Vector3(side * 0.42, 0.22, -0.2), Vector3(0.12, 0.28, 0.07), metal)
+			for i in 3:
+				add_visual_part(parts, Vector3(-0.24 + i * 0.24, 1.2, -0.22), Vector3(0.08, 0.08, 0.14), frame)
+		"pipe":
+			add_visual_part(parts, Vector3(0, 0.08, 0), Vector3(0.46, 0.16, 0.46), frame, "cylinder")
+			add_visual_part(parts, Vector3(0, 1.0, 0), Vector3(0.32, 1.78, 0.32), metal, "cylinder")
+			add_visual_part(parts, Vector3(0, 0.34, 0), Vector3(0.48, 0.12, 0.48), frame, "cylinder")
+			add_visual_part(parts, Vector3(0, 1.74, 0), Vector3(0.42, 0.12, 0.42), frame, "cylinder")
+			add_visual_part(parts, Vector3(0, 1.88, 0), Vector3(0.24, 0.12, 0.24), Color("546b74"), "cylinder")
+		"light":
+			add_visual_part(parts, Vector3(0, 0.08, 0), Vector3(0.48, 0.16, 0.48), frame, "cylinder")
+			add_visual_part(parts, Vector3(0, 1.0, 0), Vector3(0.12, 1.84, 0.12), metal, "cylinder")
+			add_visual_part(parts, Vector3(0, 1.92, 0), Vector3(0.54, 0.16, 0.22), frame)
+			add_visual_part(parts, Vector3(0, 1.82, 0), Vector3(0.34, 0.08, 0.2), Color("f4d18d"))
+		"vegetation":
+			add_visual_part(parts, Vector3(0, 0.35, 0), Vector3(0.22, 0.7, 0.22), Color("536e4e"), "cylinder")
+			for side in [-1, 1]:
+				add_visual_part(parts, Vector3(side * 0.24, 0.54, 0), Vector3(0.28, 0.76, 0.24), Color("4f7655"), "cylinder")
+				add_visual_part(parts, Vector3(side * 0.15, 0.84, -0.12), Vector3(0.3, 0.48, 0.28), Color("76915d"), "cylinder")
+			add_visual_part(parts, Vector3(0, 1.08, 0.06), Vector3(0.34, 0.45, 0.3), Color("8c9b62"), "cylinder")
+		"debris":
+			add_visual_part(parts, Vector3(-0.38, 0.13, 0.14), Vector3(0.62, 0.26, 0.46), Color("677076"), "box", Vector3(0.08, 0.14, -0.12))
+			add_visual_part(parts, Vector3(0.28, 0.16, 0.28), Vector3(0.54, 0.32, 0.42), Color("4b5960"), "box", Vector3(-0.12, -0.2, 0.1))
+			add_visual_part(parts, Vector3(0.12, 0.11, -0.36), Vector3(0.68, 0.22, 0.34), Color("818681"), "box", Vector3(0.05, 0.25, -0.08))
+			add_visual_part(parts, Vector3(-0.16, 0.08, -0.08), Vector3(0.35, 0.16, 0.52), Color("394951"), "box", Vector3(0.1, -0.1, 0.18))
+	var result = compose_mesh(parts)
+	decoration_meshes[kind] = result
+	return result
+
 func remove_fixed(key: String) -> void:
 	if fixed_nodes.has(key) and is_instance_valid(fixed_nodes[key]):
 		geometry.remove_child(fixed_nodes[key])
@@ -443,7 +640,14 @@ func enemy(data: Dictionary) -> CharacterBody3D:
 	add_child(body)
 	var scale_value = 1.8 if data.type == "boss" else (1.25 if data.type == "tank" else 1.0)
 	var color = Color(data.color)
-	collision(body, Vector3(0.85, 1.7, 0.85) * scale_value, Vector3(0, 0.85 * scale_value, 0))
+	var collision_size = Vector3(1.05, 1.7, 0.95)
+	if data.type in ["tank", "breaker"]: collision_size = Vector3(1.3, 1.7, 1.05)
+	if data.type == "shielded": collision_size = Vector3(1.12, 1.7, 1.3)
+	if data.type == "runner": collision_size = Vector3(1.0, 1.7, 0.85)
+	if data.type == "saboteur": collision_size = Vector3(1.2, 1.8, 0.95)
+	if data.type == "exploder": collision_size = Vector3(1.08, 1.7, 0.95)
+	if data.type == "boss": collision_size = Vector3(1.3, 1.7, 1.1)
+	collision(body, collision_size * scale_value, Vector3(0, collision_size.y * 0.5 * scale_value, 0))
 	var model = Node3D.new()
 	model.name = "Model"
 	model.scale = Vector3.ONE * scale_value
@@ -457,38 +661,140 @@ func enemy(data: Dictionary) -> CharacterBody3D:
 		enemy_material.metallic = 0.35
 	mesh.material_override = enemy_material
 	model.add_child(mesh)
-	if data.type == "boss":
-		for side in [-1, 1]:
-			cylinder(model, Vector3(side * 0.8, 1.65, 0), 0.25, 0.8, Color("ff8b4a"), 1)
 	return body
 
 func enemy_mesh(kind: String, color: Color) -> ArrayMesh:
 	var key = kind + str(color)
 	if enemy_meshes.has(key): return enemy_meshes[key]
-	var parts = [
-		[Vector3(0, 0.95, 0), Vector3(0.9, 0.85, 0.65), color],
-		[Vector3(0, 1.6, -0.05), Vector3(0.65, 0.5, 0.65), color.darkened(0.2)],
-		[Vector3(0, 1.64, -0.39), Vector3(0.5, 0.12, 0.05), Color("ffbf80")]
-	]
-	for side in [-1, 1]:
-		parts.append([Vector3(side * 0.25, 0.3, 0), Vector3(0.25, 0.6, 0.3), Color("24323d")])
-		parts.append([Vector3(side * 0.65, 0.95, -0.08), Vector3(0.25, 0.8, 0.3), color.darkened(0.25)])
-	if kind in ["shielded", "tank"]: parts.append([Vector3(0, 1.0, -0.5), Vector3(1.1, 1.0, 0.15), Color("526a79")])
-	var cube = BoxMesh.new()
-	cube.size = Vector3.ONE
-	var arrays = cube.surface_get_arrays(0)
-	var builder = SurfaceTool.new()
-	builder.begin(Mesh.PRIMITIVE_TRIANGLES)
-	for part in parts:
-		for index in arrays[Mesh.ARRAY_INDEX]:
-			builder.set_color(part[2])
-			builder.set_normal(arrays[Mesh.ARRAY_NORMAL][index])
-			builder.set_uv(arrays[Mesh.ARRAY_TEX_UV][index])
-			builder.add_vertex(arrays[Mesh.ARRAY_VERTEX][index] * part[1] + part[0])
-	builder.index()
-	var result = builder.commit()
+	var result = compose_mesh(enemy_parts(kind, color))
 	enemy_meshes[key] = result
 	return result
+
+func enemy_parts(kind: String, color: Color) -> Array:
+	var parts: Array = []
+	var plate = color.darkened(0.22)
+	var trim = color.lightened(0.1)
+	var joint = Color("1c2a32")
+	var steel = Color("617680")
+	var optic = Color("ffd28b")
+	match kind:
+		"grunt":
+			for side in [-1, 1]:
+				add_visual_part(parts, Vector3(side * 0.19, 0.28, 0.02), Vector3(0.22, 0.52, 0.3), joint)
+				add_visual_part(parts, Vector3(side * 0.2, 0.1, -0.08), Vector3(0.26, 0.16, 0.42), steel)
+				add_visual_part(parts, Vector3(side * 0.42, 0.83, -0.02), Vector3(0.19, 0.58, 0.25), plate, "box", Vector3(0, 0, side * -0.08))
+				add_visual_part(parts, Vector3(side * 0.36, 1.07, 0), Vector3(0.26, 0.3, 0.35), steel)
+				add_visual_part(parts, Vector3(side * 0.17, 1.08, 0.3), Vector3(0.14, 0.28, 0.14), plate, "cylinder")
+			add_visual_part(parts, Vector3(0, 0.82, 0.02), Vector3(0.68, 0.62, 0.48), color)
+			add_visual_part(parts, Vector3(0, 0.98, -0.27), Vector3(0.62, 0.34, 0.1), plate)
+			add_visual_part(parts, Vector3(0, 1.44, -0.02), Vector3(0.44, 0.35, 0.42), steel)
+			add_visual_part(parts, Vector3(0, 1.44, -0.24), Vector3(0.3, 0.08, 0.035), optic)
+			add_visual_part(parts, Vector3(0, 0.58, -0.25), Vector3(0.45, 0.09, 0.08), trim)
+		"runner":
+			for side in [-1, 1]:
+				add_visual_part(parts, Vector3(side * 0.16, 0.34, 0.04), Vector3(0.15, 0.55, 0.17), joint, "box", Vector3(0, 0, side * 0.08))
+				add_visual_part(parts, Vector3(side * 0.18, 0.08, -0.12), Vector3(0.22, 0.13, 0.38), steel)
+				add_visual_part(parts, Vector3(side * 0.4, 0.88, 0.08), Vector3(0.14, 0.54, 0.19), plate, "box", Vector3(0, 0, side * 0.1))
+				add_visual_part(parts, Vector3(side * 0.23, 0.88, 0.24), Vector3(0.11, 0.52, 0.1), trim, "box", Vector3(side * 0.18, 0, side * 0.28))
+				add_visual_part(parts, Vector3(side * 0.24, 1.12, 0.18), Vector3(0.1, 0.43, 0.12), steel, "box", Vector3(0, 0, side * 0.46))
+			add_visual_part(parts, Vector3(0, 0.88, 0.02), Vector3(0.5, 0.62, 0.36), color, "box", Vector3(-0.12, 0, 0))
+			add_visual_part(parts, Vector3(0, 1.05, -0.2), Vector3(0.4, 0.26, 0.08), plate)
+			add_visual_part(parts, Vector3(0, 1.48, -0.03), Vector3(0.32, 0.28, 0.32), steel)
+			add_visual_part(parts, Vector3(0, 1.48, -0.2), Vector3(0.24, 0.065, 0.03), optic)
+		"tank":
+			for side in [-1, 1]:
+				add_visual_part(parts, Vector3(side * 0.28, 0.29, 0.03), Vector3(0.29, 0.52, 0.34), joint)
+				add_visual_part(parts, Vector3(side * 0.3, 0.1, -0.08), Vector3(0.35, 0.16, 0.46), steel)
+				add_visual_part(parts, Vector3(side * 0.48, 1.08, 0), Vector3(0.27, 0.44, 0.51), plate)
+				add_visual_part(parts, Vector3(side * 0.47, 0.77, -0.12), Vector3(0.29, 0.3, 0.32), steel)
+				add_visual_part(parts, Vector3(side * 0.24, 1.08, 0.31), Vector3(0.19, 0.4, 0.18), steel, "cylinder")
+			add_visual_part(parts, Vector3(0, 0.82, 0.02), Vector3(0.82, 0.68, 0.58), color)
+			add_visual_part(parts, Vector3(0, 0.98, -0.31), Vector3(0.76, 0.44, 0.13), plate)
+			add_visual_part(parts, Vector3(0, 0.98, -0.39), Vector3(0.5, 0.2, 0.04), steel)
+			add_visual_part(parts, Vector3(0, 1.46, -0.02), Vector3(0.39, 0.29, 0.35), joint)
+			add_visual_part(parts, Vector3(0, 1.45, -0.2), Vector3(0.24, 0.075, 0.04), optic)
+		"spitter":
+			for side in [-1, 1]:
+				add_visual_part(parts, Vector3(side * 0.18, 0.28, 0.03), Vector3(0.19, 0.51, 0.26), joint)
+				add_visual_part(parts, Vector3(side * 0.4, 0.83, 0.02), Vector3(0.15, 0.55, 0.2), plate, "box", Vector3(0, 0, side * 0.1))
+				add_visual_part(parts, Vector3(side * 0.23, 1.13, 0.29), Vector3(0.24, 0.48, 0.24), trim, "cylinder")
+				add_visual_part(parts, Vector3(side * 0.23, 1.13, 0.29), Vector3(0.28, 0.1, 0.28), Color("4d713e"), "cylinder")
+			add_visual_part(parts, Vector3(0, 0.8, 0.07), Vector3(0.6, 0.56, 0.48), color, "box", Vector3(0.16, 0, 0))
+			add_visual_part(parts, Vector3(0, 1.19, -0.08), Vector3(0.42, 0.4, 0.42), plate)
+			add_visual_part(parts, Vector3(0, 1.24, -0.34), Vector3(0.28, 0.14, 0.18), trim)
+			add_visual_part(parts, Vector3(0, 1.25, -0.44), Vector3(0.14, 0.07, 0.04), Color("bded7c"))
+		"breaker":
+			for side in [-1, 1]:
+				add_visual_part(parts, Vector3(side * 0.2, 0.28, 0.02), Vector3(0.24, 0.5, 0.3), joint)
+				add_visual_part(parts, Vector3(side * 0.43, 0.88, 0), Vector3(0.25, 0.38, 0.41), steel)
+				add_visual_part(parts, Vector3(side * 0.5, 0.58, -0.04), Vector3(0.3, 0.32, 0.35), plate)
+				add_visual_part(parts, Vector3(side * 0.5, 0.59, -0.25), Vector3(0.24, 0.22, 0.12), trim)
+			add_visual_part(parts, Vector3(0, 0.81, 0.03), Vector3(0.72, 0.64, 0.52), color)
+			add_visual_part(parts, Vector3(0, 1.04, -0.29), Vector3(0.7, 0.35, 0.14), plate)
+			add_visual_part(parts, Vector3(0, 1.4, -0.04), Vector3(0.46, 0.32, 0.44), steel)
+			add_visual_part(parts, Vector3(0, 1.39, -0.28), Vector3(0.38, 0.14, 0.2), trim)
+			add_visual_part(parts, Vector3(0, 1.39, -0.4), Vector3(0.17, 0.1, 0.08), Color("ffd093"))
+		"saboteur":
+			for side in [-1, 1]:
+				add_visual_part(parts, Vector3(side * 0.18, 0.28, 0.03), Vector3(0.18, 0.51, 0.25), joint)
+				add_visual_part(parts, Vector3(side * 0.39, 0.86, 0.02), Vector3(0.14, 0.54, 0.18), plate, "box", Vector3(0, 0, side * -0.1))
+				add_visual_part(parts, Vector3(side * 0.48, 1.12, 0.03), Vector3(0.2, 0.25, 0.3), steel)
+			add_visual_part(parts, Vector3(0, 0.82, 0.02), Vector3(0.57, 0.62, 0.43), color)
+			add_visual_part(parts, Vector3(0, 0.95, 0.29), Vector3(0.48, 0.46, 0.24), plate)
+			add_visual_part(parts, Vector3(0, 1.43, -0.03), Vector3(0.39, 0.3, 0.37), joint)
+			add_visual_part(parts, Vector3(0, 1.42, -0.23), Vector3(0.26, 0.07, 0.035), Color("d9a2e4"))
+			add_visual_part(parts, Vector3(0.16, 1.65, 0.24), Vector3(0.055, 0.3, 0.055), steel, "cylinder", Vector3(0, 0, -0.08))
+			add_visual_part(parts, Vector3(0, 0.97, -0.25), Vector3(0.17, 0.16, 0.06), optic)
+		"shielded":
+			for side in [-1, 1]:
+				add_visual_part(parts, Vector3(side * 0.19, 0.28, 0.08), Vector3(0.22, 0.51, 0.3), joint)
+				add_visual_part(parts, Vector3(side * 0.4, 0.84, 0.13), Vector3(0.16, 0.54, 0.2), plate)
+			add_visual_part(parts, Vector3(0, 0.83, 0.12), Vector3(0.62, 0.62, 0.46), color)
+			add_visual_part(parts, Vector3(0, 1.43, 0.04), Vector3(0.4, 0.34, 0.38), steel)
+			add_visual_part(parts, Vector3(0, 1.42, -0.17), Vector3(0.23, 0.07, 0.035), optic)
+			add_visual_part(parts, Vector3(0, 0.82, -0.48), Vector3(0.96, 1.28, 0.16), plate)
+			add_visual_part(parts, Vector3(0, 0.82, -0.58), Vector3(0.8, 1.08, 0.05), color)
+			for side in [-1, 1]:
+				add_visual_part(parts, Vector3(side * 0.45, 0.82, -0.61), Vector3(0.07, 1.2, 0.05), steel)
+			add_visual_part(parts, Vector3(0, 1.34, -0.62), Vector3(0.42, 0.08, 0.05), trim)
+		"support":
+			for side in [-1, 1]:
+				add_visual_part(parts, Vector3(side * 0.18, 0.28, 0.02), Vector3(0.18, 0.5, 0.24), joint)
+				add_visual_part(parts, Vector3(side * 0.39, 0.84, 0), Vector3(0.14, 0.52, 0.18), plate)
+				add_visual_part(parts, Vector3(side * 0.22, 1.02, 0.32), Vector3(0.19, 0.54, 0.19), Color("4e8067"), "cylinder")
+				add_visual_part(parts, Vector3(side * 0.22, 1.02, 0.32), Vector3(0.22, 0.1, 0.22), steel, "cylinder")
+			add_visual_part(parts, Vector3(0, 0.82, 0.03), Vector3(0.61, 0.62, 0.45), color)
+			add_visual_part(parts, Vector3(0, 1.43, -0.02), Vector3(0.4, 0.33, 0.37), steel)
+			add_visual_part(parts, Vector3(0, 1.42, -0.22), Vector3(0.24, 0.07, 0.035), Color("9bf0b2"))
+			add_visual_part(parts, Vector3(0, 0.84, -0.28), Vector3(0.28, 0.3, 0.08), Color("a9e1bd"))
+		"exploder":
+			for side in [-1, 1]:
+				add_visual_part(parts, Vector3(side * 0.22, 0.31, 0.03), Vector3(0.22, 0.55, 0.26), joint)
+				add_visual_part(parts, Vector3(side * 0.43, 0.9, 0.05), Vector3(0.2, 0.42, 0.3), plate)
+				add_visual_part(parts, Vector3(side * 0.27, 1.02, 0.28), Vector3(0.22, 0.48, 0.22), trim, "cylinder")
+				add_visual_part(parts, Vector3(side * 0.27, 1.02, 0.28), Vector3(0.25, 0.09, 0.25), Color("492c2c"), "cylinder")
+			add_visual_part(parts, Vector3(0, 0.84, 0.02), Vector3(0.72, 0.72, 0.56), color)
+			add_visual_part(parts, Vector3(0, 1.35, -0.02), Vector3(0.39, 0.33, 0.36), plate)
+			add_visual_part(parts, Vector3(0, 1.34, -0.22), Vector3(0.25, 0.08, 0.035), Color("ffe59b"))
+			for side in [-1, 1]:
+				add_visual_part(parts, Vector3(side * 0.19, 0.91, -0.3), Vector3(0.12, 0.58, 0.045), Color("303438"), "box", Vector3(0, 0, side * -0.38))
+			add_visual_part(parts, Vector3(0, 0.89, -0.31), Vector3(0.31, 0.24, 0.06), Color("ffbf78"), "cylinder")
+		"boss":
+			for side in [-1, 1]:
+				add_visual_part(parts, Vector3(side * 0.25, 0.28, 0.04), Vector3(0.3, 0.53, 0.35), joint)
+				add_visual_part(parts, Vector3(side * 0.3, 0.1, -0.08), Vector3(0.38, 0.16, 0.46), steel)
+				add_visual_part(parts, Vector3(side * 0.48, 1.12, 0.02), Vector3(0.34, 0.48, 0.57), plate)
+				add_visual_part(parts, Vector3(side * 0.48, 1.14, -0.3), Vector3(0.25, 0.36, 0.14), steel)
+				add_visual_part(parts, Vector3(side * 0.25, 1.39, 0.3), Vector3(0.22, 0.38, 0.22), Color("ff8b4a"), "cylinder", Vector3(0, 0, side * -0.16))
+				add_visual_part(parts, Vector3(side * 0.52, 0.78, -0.36), Vector3(0.2, 0.24, 0.18), trim)
+			add_visual_part(parts, Vector3(0, 0.83, 0.03), Vector3(0.86, 0.72, 0.61), color)
+			add_visual_part(parts, Vector3(0, 0.98, -0.34), Vector3(0.82, 0.46, 0.15), plate)
+			add_visual_part(parts, Vector3(0, 0.99, -0.44), Vector3(0.52, 0.24, 0.05), steel)
+			add_visual_part(parts, Vector3(0, 0.99, -0.48), Vector3(0.22, 0.22, 0.08), Color("ff9a64"), "cylinder")
+			add_visual_part(parts, Vector3(0, 1.45, -0.04), Vector3(0.49, 0.35, 0.44), joint)
+			add_visual_part(parts, Vector3(0, 1.45, -0.27), Vector3(0.35, 0.1, 0.04), Color("e9a7dc"))
+			add_visual_part(parts, Vector3(0, 1.62, 0.13), Vector3(0.26, 0.08, 0.28), trim)
+	return parts
 
 func beam(from: Vector3, to: Vector3, color: Color = Color("ffc980"), width: float = 0.035, lifetime: float = 0.1) -> void:
 	if from.distance_squared_to(to) < 0.001:
