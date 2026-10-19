@@ -99,6 +99,7 @@ var benchmark_frames = 0
 var benchmark_frame_seconds = 0.0
 var benchmark_worst_frame = 0.0
 var benchmark_weapon = ""
+var benchmark_enemy_pool: Array = []
 var peak_simulation_ms = 0.0
 var pending_map: Dictionary = {}
 var saved_editor: Dictionary = {}
@@ -2471,7 +2472,8 @@ func benchmark_setup() -> void:
 		world.evolve(49)
 		visuals.rebuild()
 		start_wave()
-		for i in mini(64, benchmark_population): spawn_enemy(catalog.enemies.keys()[i % 9])
+		benchmark_enemy_pool = catalog.enemies.keys().filter(func(id): return id != "boss" and int(catalog.enemies[id].min_wave) <= wave)
+		for i in mini(64, benchmark_population): spawn_enemy(benchmark_enemy_pool[i % benchmark_enemy_pool.size()])
 		if benchmark_horde > 0:
 			spawn_queue.clear()
 			spawn_reserve = {"grunt": benchmark_horde}
@@ -2521,7 +2523,7 @@ func benchmark_update(delta: float) -> void:
 		benchmark_stats[-1].queued = queued_enemies()
 		benchmark_stats[-1].spawn_buffer = spawn_queue.size()
 	if benchmark_content and state == "wave":
-		var id = catalog.weapons.keys()[mini(8, int(benchmark_time / 20))]
+		var id = catalog.weapons.keys()[mini(catalog.weapons.size() - 1, int(benchmark_time / 20))]
 		if id != benchmark_weapon:
 			benchmark_weapon = id
 			weapons[0] = make_weapon(id, 3)
@@ -2532,7 +2534,7 @@ func benchmark_update(delta: float) -> void:
 	if benchmark_stress and state == "wave" and enemies.size() < benchmark_population:
 		var spawn_start = Time.get_ticks_usec()
 		for i in mini(64, benchmark_population - enemies.size()):
-			spawn_enemy(catalog.enemies.keys()[next_uid % 9])
+			spawn_enemy(benchmark_enemy_pool[next_uid % benchmark_enemy_pool.size()])
 			if Time.get_ticks_usec() - spawn_start > 2000: break
 	if state == "preparation":
 		if reward_pending:
