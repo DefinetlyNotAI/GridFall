@@ -2,7 +2,7 @@ extends RefCounted
 
 const SIZE = 3.0
 const Levels = preload("res://scripts/levels.gd")
-const LEVEL_NAMES = ["The Foundry", "Relay Station", "Crossroads", "The Crucible", "Floodworks", "Skyline Yard"]
+const LEVEL_NAMES = ["The Foundry", "Relay Station", "Crossroads", "The Crucible", "Floodworks", "Skyline Yard", "Switchback Quarry", "Reactor Spine"]
 const RULES = {
 	"budget_multiplier": {"default": 1.0, "min": 0.25, "max": 4.0},
 	"spawn_interval": {"default": 1.0, "min": 0.1, "max": 5.0},

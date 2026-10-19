@@ -57,10 +57,12 @@ static func _build_sites(world, layers: Dictionary, open: Dictionary, reserved: 
 	return result
 
 static func authored(world, index: int, seed_value: int) -> Dictionary:
-	index = posmod(index, 6)
-	var dimensions = [Vector2i(25, 25), Vector2i(25, 25), Vector2i(25, 25), Vector2i(33, 33), Vector2i(35, 29), Vector2i(37, 33)][index]
+	index = posmod(index, 8)
+	var dimensions = [Vector2i(25, 25), Vector2i(25, 25), Vector2i(25, 25), Vector2i(33, 33), Vector2i(35, 29), Vector2i(37, 33), Vector2i(41, 31), Vector2i(39, 35)][index]
 	var center = dimensions / 2
-	var terrain = ["metal", "metal", "grass", "metal", "stone", "concrete"][index]
+	if index == 6: center = Vector2i(29, 15)
+	elif index == 7: center = Vector2i(10, 17)
+	var terrain = ["metal", "metal", "grass", "metal", "stone", "concrete", "stone", "concrete"][index]
 	var layers = {"ground": {}, "structure": {}, "height": {}, "markers": {}, "objects": {}, "decoration": {}, "lighting": {}}
 	var open: Dictionary = {}
 	for y in dimensions.y:
@@ -179,6 +181,48 @@ static func authored(world, index: int, seed_value: int) -> Dictionary:
 			_open_rect(world, layers, open, 10, 19, 11, 21, "concrete")
 			_open_rect(world, layers, open, 26, 10, 27, 12, "concrete")
 			_open_path(world, layers, open, [Vector2i(27, 11), Vector2i(29, 11)])
+		6:
+			# Quarry roads wind between two open water cuts. Each crossing has a
+			# stone bridge, while the side terrace stays optional.
+			_open_rect(world, layers, open, 25, 12, 33, 18, "stone")
+			_open_rect(world, layers, open, 2, 13, 4, 17, "stone")
+			_open_rect(world, layers, open, 35, 13, 37, 17, "stone")
+			_open_rect(world, layers, open, 27, 25, 31, 28, "stone")
+			_open_path(world, layers, open, [Vector2i(29, 1), Vector2i(29, 12)])
+			_open_path(world, layers, open, [Vector2i(29, 4), Vector2i(33, 4)])
+			_open_path(world, layers, open, [Vector2i(1, 15), Vector2i(5, 15), Vector2i(5, 6), Vector2i(16, 6), Vector2i(16, 12), Vector2i(25, 12)])
+			_open_path(world, layers, open, [Vector2i(39, 15), Vector2i(35, 15), Vector2i(35, 18), Vector2i(33, 18)])
+			_open_path(world, layers, open, [Vector2i(29, 29), Vector2i(29, 26), Vector2i(20, 26), Vector2i(20, 18), Vector2i(25, 18)])
+			_open_path(world, layers, open, [Vector2i(10, 6), Vector2i(10, 10), Vector2i(12, 10), Vector2i(12, 12), Vector2i(11, 12)])
+			_open_rect(world, layers, open, 7, 8, 37, 9, "water")
+			_open_rect(world, layers, open, 7, 22, 37, 23, "water")
+			for y in [8, 9, 22, 23]:
+				for x in range(7, 38):
+					layers.ground[world.cell_key(Vector2i(x, y))] = {"type": "water", "movement_cost": 2.5}
+			for bridge in [Vector2i(9, 8), Vector2i(15, 8), Vector2i(28, 8)]:
+				_open_rect(world, layers, open, bridge.x, bridge.y, bridge.x + 2, bridge.y + 1, "road")
+			_open_rect(world, layers, open, 19, 22, 21, 23, "road")
+			_open_rect(world, layers, open, 6, 13, 9, 16, "stone")
+			_open_path(world, layers, open, [Vector2i(5, 15), Vector2i(7, 15)])
+			_open_rect(world, layers, open, 31, 3, 35, 6, "stone")
+			_open_path(world, layers, open, [Vector2i(29, 4), Vector2i(31, 4)])
+			_open_rect(world, layers, open, 9, 10, 11, 13, "stone")
+			_open_rect(world, layers, open, 10, 13, 10, 15, "stone")
+		7:
+			# The reactor's west gate meets the core quickly; its eastern service
+			# approach bends through a longer machinery gallery.
+			_open_rect(world, layers, open, 7, 14, 13, 20, "concrete")
+			_open_rect(world, layers, open, 2, 15, 4, 19, "metal")
+			_open_rect(world, layers, open, 33, 15, 35, 19, "metal")
+			_open_rect(world, layers, open, 8, 30, 12, 32, "metal")
+			_open_path(world, layers, open, [Vector2i(10, 1), Vector2i(10, 4), Vector2i(15, 4), Vector2i(15, 10), Vector2i(10, 10), Vector2i(10, 13)])
+			_open_path(world, layers, open, [Vector2i(1, 17), Vector2i(4, 17), Vector2i(4, 14), Vector2i(7, 14)])
+			_open_path(world, layers, open, [Vector2i(37, 17), Vector2i(34, 17), Vector2i(34, 8), Vector2i(28, 8), Vector2i(28, 5), Vector2i(22, 5), Vector2i(22, 11), Vector2i(16, 11), Vector2i(16, 15), Vector2i(14, 15)])
+			_open_path(world, layers, open, [Vector2i(10, 33), Vector2i(10, 30), Vector2i(18, 30), Vector2i(18, 27), Vector2i(13, 27), Vector2i(13, 21)])
+			_open_rect(world, layers, open, 30, 11, 32, 14, "metal")
+			_open_path(world, layers, open, [Vector2i(34, 12), Vector2i(32, 12)])
+			_open_rect(world, layers, open, 22, 13, 25, 16, "metal")
+			_open_path(world, layers, open, [Vector2i(22, 11), Vector2i(22, 14), Vector2i(23, 14)])
 	# Everything outside the carved route network is a fixed barrier. That makes
 	# the roads real approach choices instead of paint on an open field.
 	for y in range(1, dimensions.y - 1):
@@ -225,6 +269,9 @@ static func authored(world, index: int, seed_value: int) -> Dictionary:
 			var build_sites = [world.cell_key(point + inward + Vector2i(0, -1)), world.cell_key(point + inward + Vector2i(0, 1))] if point.x == 1 or point.x == dimensions.x - 2 else [world.cell_key(point + Vector2i(-1, -2)), world.cell_key(point + Vector2i(1, -2))]
 			for build_key in build_sites: reserved[build_key] = true
 			events.append({"id": "approach_%d" % round_number, "round": round_number, "remove": [key], "build": build_sites, "message": "A new flank opens. Enemies now attack from %d fronts." % (portal_index + 2)})
+	if index == 6:
+		for key in layers.ground:
+			if layers.ground[key].get("type", "") == "water": reserved[key] = true
 	# Give each arena useful equipment without occupying its approach lanes.
 	if index < 3:
 		layers.objects[world.cell_key(center + Vector2i(-1, 2))] = {"type": "supply"}
@@ -283,17 +330,42 @@ static func authored(world, index: int, seed_value: int) -> Dictionary:
 			layers.objects[world.cell_key(Vector2i(10, 21))] = {"type": "spikes"}
 			layers.objects[world.cell_key(Vector2i(26, 11))] = {"type": "electric"}
 			layers.decoration[world.cell_key(Vector2i(8, 6))] = {"type": "crate"}
-	var cache_sites = [Vector2i(6, 12), Vector2i(18, 18), Vector2i(18, 7), Vector2i(7, 12), Vector2i(28, 21), Vector2i(27, 12)]
+		6:
+			for p in [Vector2i(9, 10), Vector2i(11, 10), Vector2i(9, 13), Vector2i(11, 13)]: _pillar(world, layers, p, 9.0)
+			layers.structure[world.cell_key(Vector2i(10, 11))] = {"type": "platform", "height": 0.5, "elevation": 2.3, "health": 240}
+			layers.structure[world.cell_key(Vector2i(10, 12))] = {"type": "stairs", "height": 1.4, "elevation": 1.4, "rotation": 180, "health": 250}
+			layers.structure[world.cell_key(Vector2i(10, 13))] = {"type": "stairs", "height": 1.4, "rotation": 180, "health": 250}
+			for x in range(9, 12):
+				for y in range(10, 14): layers.height[world.cell_key(Vector2i(x, y))] = {"type": "ceiling", "elevation": 5.0}
+			layers.objects[world.cell_key(Vector2i(7, 13))] = {"type": "spikes"}
+			layers.decoration[world.cell_key(Vector2i(6, 14))] = {"type": "machinery"}
+			layers.decoration[world.cell_key(Vector2i(34, 5))] = {"type": "crate"}
+		7:
+			for x in range(30, 33):
+				for y in range(11, 15): layers.height[world.cell_key(Vector2i(x, y))] = {"type": "ceiling", "elevation": 5.0}
+			for x in range(23, 26):
+				for y in range(13, 16): layers.height[world.cell_key(Vector2i(x, y))] = {"type": "ceiling", "elevation": 4.5}
+			_cover(world, layers, Vector2i(30, 13), "steel", 500)
+			_cover(world, layers, Vector2i(24, 15), "brick", 220)
+			layers.objects[world.cell_key(Vector2i(31, 14))] = {"type": "electric"}
+			layers.objects[world.cell_key(Vector2i(25, 15))] = {"type": "slow"}
+			layers.decoration[world.cell_key(Vector2i(30, 12))] = {"type": "machinery"}
+			layers.decoration[world.cell_key(Vector2i(23, 13))] = {"type": "pipe"}
+	var cache_sites = [Vector2i(6, 12), Vector2i(18, 18), Vector2i(18, 7), Vector2i(7, 12), Vector2i(28, 21), Vector2i(27, 12), Vector2i(8, 14), Vector2i(31, 11)]
 	layers.objects[world.cell_key(cache_sites[index])] = {"type": "chest"}
-	var ids = ["foundry", "relay", "crossroads", "crucible", "floodworks", "skyline"]
-	var names = ["The Foundry", "Relay Station", "Crossroads", "The Crucible", "Floodworks", "Skyline Yard"]
+	if index == 6: layers.objects[world.cell_key(Vector2i(33, 5))] = {"type": "chest"}
+	elif index == 7: layers.objects[world.cell_key(Vector2i(24, 14))] = {"type": "chest"}
+	var ids = ["foundry", "relay", "crossroads", "crucible", "floodworks", "skyline", "quarry", "reactor"]
+	var names = ["The Foundry", "Relay Station", "Crossroads", "The Crucible", "Floodworks", "Skyline Yard", "Switchback Quarry", "Reactor Spine"]
 	var descriptions = [
 		"A switchback service maze loops around the foundry core. West and east flanks open on waves 4 and 8.",
 		"A ring-shaped relay concourse joins offset portal halls beneath a covered central station. Side gates open on waves 4 and 8.",
 		"A parkland ring crosses two slow flood channels at offset bridges. Side gates open on waves 4 and 8.",
 		"Nested furnace circuits and narrow bridgeheads wrap the crucible. New fronts open on waves 4, 8, and 12.",
 		"Canal banks, weighted water crossings, and an inner service loop turn the floodworks into a route puzzle. New fronts open on waves 4, 8, and 12.",
-		"A looping yard surrounds two elevated rooftops with stair access, canopy cover, and grapple pylons. New fronts open on waves 4, 8, and 12."
+		"A looping yard surrounds two elevated rooftops with stair access, canopy cover, and grapple pylons. New fronts open on waves 4, 8, and 12.",
+		"Quarry switchbacks cross two slow water cuts at stone bridges, with an optional firing terrace above the service road. West, east, and south gates open on waves 4, 8, and 12.",
+		"The reactor's short western gate and long eastern service spine meet at an offset core, with covered maintenance alcoves along the gallery. West, east, and south gates open on waves 4, 8, and 12."
 	]
 	return {"version": 2, "id": ids[index], "name": names[index], "description": descriptions[index], "author": "GRIDFALL", "width": dimensions.x, "height": dimensions.y, "seed": seed_value, "theme": index % 3, "rules": world.default_rules(), "layers": layers, "build": _build_sites(world, layers, open, reserved), "events": events}
 
