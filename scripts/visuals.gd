@@ -385,6 +385,7 @@ func rebuild() -> void:
 		var marker = world.map.layers.markers[key]
 		var pos = world.position(world.point(key))
 		if marker.type == "objective":
+			if game.mode == "campaign": continue
 			core = StaticBody3D.new()
 			core.set_meta("core", true)
 			core.position = pos

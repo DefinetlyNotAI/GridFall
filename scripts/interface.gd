@@ -363,7 +363,7 @@ func show_campaign_selection() -> void:
 	if game.playing(): game.to_menu()
 	notice_time = 0
 	overlay = "campaign_selection"
-	var progress: Dictionary = game.profile.data.campaign
+	var progress: Dictionary = game.campaign._progress()
 	if campaign_selected < 0: campaign_selected = int(progress.stage)
 	campaign_selected = clampi(campaign_selected, 0, int(progress.unlocked) - 1)
 	var body = page("RESEARCH TRIALS", "20 movement chambers · checkpoints save automatically · fixed equipment")
@@ -391,10 +391,12 @@ func show_campaign_selection() -> void:
 	section(detail, "CHAMBER %02d / 20" % (campaign_selected + 1))
 	label(detail, selected.name, 28)
 	label(detail, selected.hint, 19, Color("a1b7c1"))
+	readout(detail, "Mechanics", selected.focus)
+	readout(detail, "Difficulty", selected.difficulty)
 	readout(detail, "Trials completed", "%d / 20" % progress.completed)
 	readout(detail, "Retries", str(progress.deaths))
 	spacer(detail)
-	label(detail, "Jump, dash, wall-jump and grapple between platforms. Use consoles to release each exit. Sentry beams mark the shot before it fires.", 17, Color("92abb8"))
+	label(detail, "Perform the marked move at each relay to release the exit. Amber release consoles use E. Sentry beams mark the shot before it fires.", 17, Color("92abb8"))
 	button(detail, "Resume checkpoint" if campaign_selected == int(progress.stage) and int(progress.checkpoint) > 0 else "Enter chamber", func(): game.start_campaign_stage(campaign_selected))
 
 func show_campaign_complete() -> void:
@@ -1308,7 +1310,7 @@ func _process(delta: float) -> void:
 			var info: Dictionary = game.campaign.stage_info()
 			hud_top.text = "CHAMBER %02d / 20\n%s" % [game.campaign.stage_index + 1, info.name.to_upper()]
 			hud_left.text = "HEALTH  %d / %d\nCHECKPOINT  %d" % [game.health, game.max_health, game.campaign.checkpoint_index]
-			hud_right.text = "CONSOLES  %d / %d\nRETRIES  %d" % [game.campaign._activated_switches.size(), info.switches, game.profile.data.campaign.deaths]
+			hud_right.text = "RELAYS  %d / %d\nRETRIES  %d" % [game.campaign._activated_switches.size(), info.switches, game.profile.data.campaign.deaths]
 			hints.text = "[%s] JUMP / WALL JUMP · [%s] DASH · [%s] SLIDE / SLAM · [%s] GRAPPLE\n[%s] CONSOLE · [%s] RETRY CHECKPOINT · [%s] PAUSE" % [key_name("jump"), key_name("sprint"), key_name("crouch"), key_name("grapple"), key_name("interact"), key_name("unstuck"), key_name("pause")]
 			return
 		for uid in game.enemy_index.of_type("boss"):

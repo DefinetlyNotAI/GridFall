@@ -155,6 +155,7 @@ func begin_dash(direction: Vector3) -> bool:
 	grapple_active = false
 	velocity.y = 0
 	game.audio.cue("dash", global_position, 0.65)
+	game.campaign.record_move("dash")
 	return true
 
 func shot_feedback() -> void:
@@ -176,6 +177,7 @@ func begin_grapple() -> bool:
 	dash_timer = 0
 	slide_active = false
 	game.audio.cue("dash", global_position, 0.4)
+	game.campaign.record_move("grapple")
 	return true
 
 func update_grapple(delta: float) -> void:
@@ -235,6 +237,7 @@ func unstuck() -> void:
 	game.ui.notify("Returned to chamber checkpoint." if game.mode == "campaign" else "Unstuck: returned to clear ground near deployment.")
 
 func slam_impact(fall_speed: float) -> void:
+	game.campaign.record_move("slam")
 	impact_flash = 1.0
 	landing = 0.15
 	slam_jump_timer = 0.18
@@ -331,6 +334,7 @@ func _physics_process(delta: float) -> void:
 	if slide_active and not was_sliding:
 		horizontal = horizontal.normalized() * maxf(horizontal.length(), speed * 1.5)
 		game.audio.cue("slide", global_position, 0.4)
+	if slide_active: game.campaign.record_move("slide")
 	var jumped = false
 	if jump_buffer > 0 and not slam_active:
 		if coyote_timer > 0 or slam_jump_timer > 0:
@@ -338,12 +342,14 @@ func _physics_process(delta: float) -> void:
 			coyote_timer = 0
 			slam_jump_timer = 0
 			jumped = true
+			game.campaign.record_move("jump")
 		elif is_on_wall() and wall_jumps < 3:
 			var normal = get_wall_normal()
 			normal.y = 0
 			horizontal = normal.normalized() * 12 + direction * 5
 			velocity.y = JUMP_SPEED
 			wall_jumps += 1
+			game.campaign.record_move("wall")
 			jumped = true
 			game.audio.cue("wall_jump", global_position, 0.45)
 		if jumped:

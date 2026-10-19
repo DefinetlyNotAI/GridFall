@@ -68,7 +68,7 @@ func valid(value: Variant) -> bool:
 			var number: Variant = value.campaign.get(key)
 			if not numeric(number, campaign_bounds[key][0], campaign_bounds[key][1]) or number != int(number): return false
 		if value.campaign.completed > value.campaign.unlocked or value.campaign.stage >= value.campaign.unlocked: return false
-		if value.campaign.has("switches") and (not numeric(value.campaign.switches, 0, 7) or value.campaign.switches != int(value.campaign.switches)): return false
+		if value.campaign.has("switches") and (not numeric(value.campaign.switches, 0, 63) or value.campaign.switches != int(value.campaign.switches)): return false
 	if value.has("ascension_perks"):
 		if not value.ascension_perks is Dictionary: return false
 		for key in value.ascension_perks:
