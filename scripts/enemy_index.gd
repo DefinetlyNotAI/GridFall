@@ -6,6 +6,7 @@ var typed: Dictionary = {}
 var entries: Dictionary = {}
 var ids: Array[int] = []
 var sample_cursor = 0
+var search_offsets: Dictionary = {}
 
 func clear() -> void:
 	buckets.clear()
@@ -72,24 +73,40 @@ func move(uid: int, position: Vector3) -> void:
 	buckets[cell].append(uid)
 	typed[entry.kind][cell].append(uid)
 
+func nearby_offsets(extent: int) -> Array:
+	if not search_offsets.has(extent):
+		var offsets: Array[Vector2i] = []
+		for y in range(-extent, extent + 1):
+			for x in range(-extent, extent + 1): offsets.append(Vector2i(x, y))
+		offsets.sort_custom(func(a, b): return a.length_squared() < b.length_squared())
+		search_offsets[extent] = offsets
+	return search_offsets[extent]
+
 func nearby(position: Vector3, radius: float, limit: int = 0, kind: String = "") -> Array:
 	var result: Array = []
 	var source: Dictionary = buckets if kind == "" else typed.get(kind, {})
-	var low = Vector2i(floori((position.x - radius) / CELL), floori((position.z - radius) / CELL))
-	var high = Vector2i(floori((position.x + radius) / CELL), floori((position.z + radius) / CELL))
 	var squared = radius * radius
 	sample_cursor += 1
-	for y in range(low.y, high.y + 1):
-		for x in range(low.x, high.x + 1):
-			var members: Array = source.get(Vector2i(x, y), [])
+	if limit > 0:
+		var center = Vector2i(floori(position.x / CELL), floori(position.z / CELL))
+		for offset in nearby_offsets(ceili(radius / CELL)):
+			var members: Array = source.get(center + offset, [])
 			var count = members.size()
-			var probes = count if limit <= 0 else mini(count, maxi(64, limit * 4))
-			for i in probes:
-				var uid = int(members[(i + sample_cursor) % count] if limit > 0 else members[i])
+			for i in mini(count, maxi(64, limit * 4)):
+				var uid = int(members[(i + sample_cursor) % count])
 				var delta: Vector3 = entries[uid].position - position
 				if delta.x * delta.x + delta.z * delta.z > squared: continue
 				result.append(uid)
-				if limit > 0 and result.size() >= limit: return result
+				if result.size() >= limit: return result
+		return result
+	var low = Vector2i(floori((position.x - radius) / CELL), floori((position.z - radius) / CELL))
+	var high = Vector2i(floori((position.x + radius) / CELL), floori((position.z + radius) / CELL))
+	for y in range(low.y, high.y + 1):
+		for x in range(low.x, high.x + 1):
+			for uid in source.get(Vector2i(x, y), []):
+				var delta: Vector3 = entries[uid].position - position
+				if delta.x * delta.x + delta.z * delta.z > squared: continue
+				result.append(uid)
 	return result
 
 func of_type(kind: String) -> Array:
