@@ -21,6 +21,8 @@ static func snapshot(game) -> Dictionary:
 		var item = {"type": enemy.type, "uid": enemy.uid, "position": vector(enemy.node.position), "velocity": vector(enemy.node.velocity), "yaw": enemy.node.rotation.y, "steering": vector(enemy.steering), "elite": enemy.elite, "ai": enemy.ai, "burn_source": enemy.burn_source}
 		for field in ENEMY_NUMBERS: item[field] = enemy[field]
 		item.simulation_lag = maxf(0, game.elapsed - float(enemy.get("simulated_at", game.elapsed)))
+		if enemy.type == "regenerator": item.regen_delay = clampf(float(enemy.get("regen_ready_at", game.elapsed + 4.0)) - game.elapsed, -item.simulation_lag, 4.0)
+		item.attack_target = str(enemy.get("attack_target", ""))
 		for effect in ["burn", "poison", "slow"]:
 			item[effect + "_lag"] = maxf(0, game.elapsed - float(enemy.get(effect + "_at", enemy.get("simulated_at", game.elapsed))))
 		result.enemies.append(item)
@@ -64,6 +66,8 @@ static func valid(game, value: Variant) -> bool:
 			if not game.profile.numeric(enemy.get(field), -1e12 if field.ends_with("timer") or field.ends_with("time") or field == "cooldown" else 0, 1e12): return false
 		if enemy.health <= 0 or enemy.health > enemy.max_health or enemy.speed > 100 or enemy.armor > 0.8 or enemy.slow > 0.9 or enemy.blast_resist > 1 or enemy.status_resist > 1: return false
 		if enemy.has("simulation_lag") and not game.profile.numeric(enemy.simulation_lag, 0, 1e12): return false
+		if enemy.has("regen_delay") and not game.profile.numeric(enemy.regen_delay, -1e12, 4.0): return false
+		if enemy.has("attack_target") and (not enemy.attack_target is String or enemy.attack_target.length() > 40): return false
 		for effect in ["burn", "poison", "slow"]:
 			if enemy.has(effect + "_lag") and not game.profile.numeric(enemy[effect + "_lag"], 0, 1e12): return false
 	for projectile in value.projectiles:
@@ -82,6 +86,10 @@ static func valid(game, value: Variant) -> bool:
 		if effects.has("origin") and not valid_vector(game, effects.origin): return false
 		if effects.has("elemental") and not effects.elemental is bool: return false
 		if effects.has("elemental_rarity") and (not game.profile.numeric(effects.elemental_rarity, 0, 4) or effects.elemental_rarity != int(effects.elemental_rarity)): return false
+		if effects.has("traits"):
+			if not effects.traits is Dictionary or effects.traits.size() > 32: return false
+			for key in effects.traits:
+				if not key is String or not game.profile.numeric(effects.traits[key], 0, 1000000): return false
 	return true
 
 static func restore(game, value: Dictionary) -> void:
@@ -103,6 +111,8 @@ static func restore(game, value: Dictionary) -> void:
 		enemy.node.velocity = unpack(item.velocity)
 		enemy.node.rotation.y = item.yaw
 		enemy.simulated_at = game.elapsed - float(item.get("simulation_lag", 0))
+		if enemy.type == "regenerator": enemy.regen_ready_at = game.elapsed + float(item.get("regen_delay", 4.0))
+		enemy.attack_target = str(item.get("attack_target", ""))
 		for effect in ["burn", "poison", "slow"]:
 			enemy[effect + "_at"] = game.elapsed - float(item.get(effect + "_lag", item.get("simulation_lag", 0)))
 		game.enemies[enemy.uid] = enemy

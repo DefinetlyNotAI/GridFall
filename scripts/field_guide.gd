@@ -6,8 +6,10 @@ const ENEMY_TACTICS = {
 	"runner": "Fast and fragile. Slow fields and close-range weapons stop flanking packs.",
 	"tank": "Heavy armor and high health. Concentrate fire and use penetration rather than scattering damage.",
 	"spitter": "A ranged projectile attacker. Break sight lines, dash through danger, or punch to reflect a frontal shot.",
-	"breaker": "Prioritizes defenses. Keep repair coverage behind your front line.",
-	"saboteur": "Hunts structures. Watch exposed utility machines and side approaches.",
+	"breaker": "Hunts visible defenses within 12 m, retaining its target out to 14 m. At most two hunters commit to one defense; the rest follow the core road. An amber beam warns of its first strike. Repair coverage and focused fire counter it.",
+	"saboteur": "Hunts attack towers within 10 m and retains its target out to 12 m. Shares the two-hunter assignment limit with Breakers. Fragile, with slower strikes; intercept it before it reaches a tower.",
+	"lancer": "Road-bound ranged attacker. An amber targeting line warns before a slow precision bolt; cover and frontal parries counter it. Starts at wave 8.",
+	"regenerator": "Road-bound bruiser. After four seconds without damage it recovers 4% of maximum health per second. Focus fire or keep a burn on it to interrupt recovery. Starts at wave 9.",
 	"shielded": "Its frontal shield reduces incoming damage. Flank it or use explosives.",
 	"support": "Heals nearby allies. Prioritize the mender before attacking a dense pack.",
 	"exploder": "Detonates at close range. Kill it from a distance and avoid grouping around it.",
@@ -22,6 +24,8 @@ const WEAPON_TACTICS = {
 	"lmg": "Sustained defensive fire. Large reserves offset a longer reload.",
 	"rocket": "Projectile splash punishes crowds. Lead moving targets and respect cover.",
 	"plasma": "Travelling energy shots. Combine elemental effects with crowd control.",
+	"arc": "Accurate energy carbine. Each hit arcs to up to two visible enemies within 5 m for half the primary hit's damage. Arcs cannot recursively chain. Plasma Caster research unlocks it.",
+	"frost_launcher": "Explosive cryogenic rounds slow blast victims by 35% for 2.5 seconds. Use it to set up a shotgun or hold a road choke. Cryo Emitter research unlocks it.",
 	"blade": "Ammunition-free close combat. Grapple into position, strike, then dash away. Accepts an elemental module."
 }
 var ui
@@ -66,7 +70,7 @@ func entries() -> Array:
 			return [
 				{"id": "movement", "name": "Movement & survival", "description": "Run, jump, dash and slide to preserve momentum. Hold Grapple to pull toward a surface or enemy within 48 m. Release to coast; jumping, dashing or slamming cancels the hook. A ground slam consumes one of the three dash/stamina bars. Falling below the world recovers you at deployment, even during combat. Enemy damage can still end the run."},
 				{"id": "combat", "name": "Parries & close combat", "description": "Punch opens a 0.16-second frontal parry window with a 0.55-second cooldown. Reflect one projectile at double damage, or retaliate against a melee strike. A successful parry restores 5 health and 0.35 dash energy. A visible weapon or ability kill within 5 m restores 3 health plus 2% of maximum health."},
-				{"id": "planning", "name": "Construction & supplies", "description": "Build during preparation on permitted ground. Use the planning grid to inspect, repair, specialize, move, replace or sell defenses. Marked tower pads accept attack towers; structure pads accept other construction. Fixed terrain belongs to the world. Supplies and chests are used during preparation; ammunition and medkits have finite capacity."},
+				{"id": "planning", "name": "Construction & supplies", "description": "Build during preparation on permitted ground. Use the planning grid to inspect, repair, specialize, move, replace or sell defenses. Aim at damaged construction within 4 m and press Interact for a field repair: up to 20% integrity, paid in scrap, with a 2.5-second shared cooldown. Field repairs work in combat; no-repair challenges disable them. Planning repairs cost less. Marked tower pads accept attack towers; structure pads accept other construction. Fixed terrain belongs to the world. Supplies and chests are used during preparation."},
 				{"id": "levels", "name": "Experience & upgrade drafts", "description": "Kills grant XP based on enemy threat cost. At each wave clear, earned levels are converted into upgrade choices. Each of the first 30 earned levels adds 6 maximum health. Levels add 6% weapon damage, capped at +150%, and delayed recovery up to 2 HP/s. Every cleared wave grants at least one draft; multiple earned levels grant multiple choices. Unresolved choices survive checkpoints. XP, level and run upgrades reset on a new deployment."},
 				{"id": "progression", "name": "Permanent progression", "description": "Eligible defeats award Technology Points and record achievements. Research unlocks equipment and permanent bonuses for future deployments. Ascension needs wave 25 and 20 technologies, resets ordinary research, and awards cores for permanent Ascension perks. Sandbox grants no TP or achievements."},
 				{"id": "frontier", "name": "World evolution & Frontier", "description": "Authored routes and portals change after waves 4, 8 and 12. Expanding Frontier adds eight tiles east and south every four cleared waves, relocating outer approaches while preserving your defenses. Territory stops growing at 96 by 96; waves remain endless."},

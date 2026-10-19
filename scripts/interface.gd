@@ -747,6 +747,7 @@ func show_loadout() -> void:
 	var available = selected.tech == "" or game.profile.rank(selected.tech) > 0
 	section(detail, "BASE WEAPON SPECIFICATION")
 	label(detail, selected.name, 32)
+	if FieldGuide.WEAPON_TACTICS.has(loadout_selected): label(detail, FieldGuide.WEAPON_TACTICS[loadout_selected], 17, Color("a1b7c1"))
 	label(detail, "Deployment rolls and research bonuses modify these base values.", 15, Color("92abb8"))
 	label(detail, "PROJECTILE" if selected.speed > 0 else ("CLOSE COMBAT" if selected.magazine == 0 else "HITSCAN"), 14, Color("e3bb7d"))
 	readout(detail, "Damage per attack", "%d × %d pellets" % [selected.damage, selected.pellets] if selected.pellets > 1 else str(selected.damage))
@@ -809,7 +810,7 @@ func show_inventory() -> void:
 		var module_row = row(body, 8)
 		for slot in active_modules:
 			var rarity = int(game.weapons[game.active_weapon].get("attachment_rarities", {}).get(slot, 0))
-			button(module_row, "Detach %s · %s" % [str(slot).capitalize(), ["Common", "Uncommon", "Rare", "Epic", "Legendary"][rarity]], func(): game.detach_module(slot))
+			button(module_row, "Detach %s · %s" % [game.catalog.attachments[active_modules[slot]].name, ["Common", "Uncommon", "Rare", "Epic", "Legendary"][rarity]], func(): game.detach_module(slot))
 	label(body, "Pulse [%s] · Medkits [%s]: %d · Grenades [%s]: %d\nArmor %.0f%% · Shield %.0f · Backpack %d/%d" % [key_name("ability"), key_name("heal"), game.consumables.medkit, key_name("grenade"), game.consumables.grenade, game.bonus("armor") * 100, game.shield, game.backpack.size(), game.capacity], 17)
 	var content = row(body, 24)
 	content.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -879,7 +880,7 @@ func show_inventory() -> void:
 					readout(detail, str(stat_key).replace("_mult", "").replace("_", " ").capitalize(), "%+.1f%%" % ((stat_value - 1) * 100) if str(stat_key).ends_with("_mult") else "%.1f" % stat_value)
 			var active = game.weapons[game.active_weapon]
 			var blocked = ""
-			if item.id in ["barrel", "optic", "magazine", "grip", "elemental"]:
+			if game.catalog.attachments.has(item.id):
 				if active.id == "": blocked = "Equip a weapon first"
 				elif not game.attachment_compatible(item.id, active): blocked = "Incompatible with active weapon"
 			elif item.id == "armor" and game.bonus("armor") >= 0.65: blocked = "Armor at maximum"
@@ -1284,6 +1285,7 @@ func _process(delta: float) -> void:
 		if game.state == "wave":
 			action_hints = "LMB FIRE / RMB AIM  ·  [%s] JUMP / WALL JUMP  ·  [%s] DASH  ·  [%s] SLIDE / SLAM  ·  [%s] GRAPPLE  ·  [%s] PARRY" % [key_name("jump"), key_name("sprint"), key_name("crouch"), key_name("grapple"), key_name("punch")]
 		var supplies = "[%s] MEDKIT %d  ·  [%s] GRENADE %d  ·  [%s]/[%s] WEAPONS  ·  [%s] RELOAD  ·  [%s] INVENTORY  ·  [%s] PAUSE" % [key_name("heal"), game.consumables.medkit, key_name("grenade"), game.consumables.grenade, key_name("weapon1"), key_name("weapon2"), key_name("reload"), key_name("inventory"), key_name("pause")]
+		var nearby_loot = false
 		if not game.drops.is_empty() and is_instance_valid(game.player):
 			var nearest_distance = 3.5 * 3.5
 			var nearest_name = ""
@@ -1292,7 +1294,21 @@ func _process(delta: float) -> void:
 				if distance < nearest_distance:
 					nearest_distance = distance
 					nearest_name = game.item_name(drop.item).to_upper()
-			if nearest_name != "": action_hints = "[%s] PICK UP %s" % [key_name("interact"), nearest_name]
+			if nearest_name != "":
+				nearby_loot = true
+				action_hints = "[%s] PICK UP %s" % [key_name("interact"), nearest_name]
+		if not nearby_loot and is_instance_valid(game.player):
+			var camera: Camera3D = game.player.camera
+			var hit = game.ray(camera.global_position, camera.global_position - camera.global_basis.z * 4, 1)
+			if not hit.is_empty() and hit.collider.has_meta("structure"):
+				var key = str(hit.collider.get_meta("structure"))
+				if game.world.construction.has(key):
+					var defense: Dictionary = game.world.construction[key]
+					action_hints = "%s · INTEGRITY %.0f / %.0f" % [defense.name.to_upper(), defense.health, defense.max_health]
+					if defense.health < defense.max_health and game.repairs_allowed():
+						var amount = minf(defense.max_health - defense.health, defense.max_health * 0.2)
+						action_hints += " · [%s] REPAIR %.0f / %d SCRAP" % [key_name("interact"), amount, game.repair_cost(defense, amount, true)]
+						if game.elapsed < game.field_repair_ready_at: action_hints += " · %.1fs" % (game.field_repair_ready_at - game.elapsed)
 		hints.text = action_hints + "\n" + supplies
 	if overlay == "planning" and is_instance_valid(grid) and is_instance_valid(planning_preview):
 		if not game.world.inside(grid.hover):

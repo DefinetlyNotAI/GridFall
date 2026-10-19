@@ -91,6 +91,7 @@ func refresh_gun() -> void:
 	gun.position = Vector3(0.3, -0.28, -0.55)
 	var color = Color(definition.color)
 	var id = game.weapons[game.active_weapon].id
+	if game.visuals.add_special_weapon_model(gun, id): return
 	if WEAPON_MODELS.has(id):
 		var model = WEAPON_MODELS[id].instantiate()
 		model.rotation.y = PI

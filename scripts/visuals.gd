@@ -823,12 +823,46 @@ func build_turret_head(head: Node3D, id: String, color: Color) -> void:
 			horizontal_barrel(head, Vector3(0, 0.02, -1.0), 0.18, 1.2, steel)
 			horizontal_barrel(head, Vector3(0, 0.02, -1.65), 0.23, 0.12, color, 1.0)
 
+func add_special_weapon_model(parent: Node3D, id: String) -> bool:
+	match id:
+		"arc":
+			var frame = Color("263941")
+			var steel = Color("71858a")
+			var cyan = Color("51d8e4")
+			box(parent, Vector3(0, 0, 0.12), Vector3(0.3, 0.25, 0.76), frame)
+			box(parent, Vector3(0, 0.04, -0.2), Vector3(0.22, 0.28, 0.48), steel)
+			box(parent, Vector3(0, -0.08, -0.57), Vector3(0.16, 0.15, 0.42), frame)
+			box(parent, Vector3(0, -0.28, 0.08), Vector3(0.2, 0.34, 0.23), frame)
+			for side in [-1, 1]:
+				var coil = cylinder(parent, Vector3(side * 0.2, 0.02, -0.32), 0.085, 0.44, cyan, 1.2)
+				coil.rotation.x = PI * 0.5
+				box(parent, Vector3(side * 0.2, 0.02, -0.55), Vector3(0.12, 0.12, 0.08), steel)
+			box(parent, Vector3(0, 0.2, 0.1), Vector3(0.26, 0.08, 0.5), cyan, 0.65)
+			return true
+		"frost_launcher":
+			var frame = Color("344b58")
+			var steel = Color("a4c7d0")
+			var frost = Color("a6efff")
+			box(parent, Vector3(0, 0, 0.12), Vector3(0.42, 0.32, 0.72), frame)
+			box(parent, Vector3(0, 0.01, -0.25), Vector3(0.32, 0.3, 0.42), steel)
+			horizontal_barrel(parent, Vector3(0, 0.02, -0.68), 0.2, 0.52, steel)
+			horizontal_barrel(parent, Vector3(0, 0.02, -0.98), 0.25, 0.14, frost, 0.8)
+			for side in [-1, 1]:
+				box(parent, Vector3(side * 0.32, 0.02, 0.12), Vector3(0.18, 0.3, 0.62), frame)
+				cylinder(parent, Vector3(side * 0.32, 0.03, 0.0), 0.11, 0.62, frost, 0.35)
+			box(parent, Vector3(0, -0.27, 0.11), Vector3(0.24, 0.3, 0.24), frame)
+			box(parent, Vector3(0, 0.23, 0.08), Vector3(0.3, 0.1, 0.42), steel)
+			return true
+	return false
+
 func catalog_model(category: String, entry: Dictionary) -> Node3D:
 	var model = Node3D.new()
 	var id = str(entry.get("id", ""))
 	match category:
 		"Weapons":
-			if WEAPON_SHOWCASE.has(id):
+			if add_special_weapon_model(model, id):
+				pass
+			elif WEAPON_SHOWCASE.has(id):
 				var weapon = WEAPON_SHOWCASE[id].instantiate() as Node3D
 				weapon.rotation.y = PI
 				weapon.scale = Vector3.ONE * (0.65 if id in ["sniper", "lmg"] else 0.8)
@@ -885,6 +919,20 @@ func build_attachment_model(parent: Node3D, id: String) -> void:
 				var coil = cylinder(parent, Vector3(side * 0.22, 0.08, 0), 0.13, 0.58, Color("d77f54"), 1.1)
 				coil.rotation.z = side * 0.2
 			box(parent, Vector3(0, 0.4, 0), Vector3(0.55, 0.1, 0.5), steel)
+		"coolant":
+			box(parent, Vector3(0, 0.0, 0), Vector3(0.56, 0.3, 0.48), Color("314955"))
+			for side in [-1, 1]:
+				cylinder(parent, Vector3(side * 0.24, 0.02, -0.03), 0.14, 0.48, Color("91e5f0"), 0.8)
+				box(parent, Vector3(side * 0.24, 0.02, -0.29), Vector3(0.2, 0.22, 0.08), steel)
+			box(parent, Vector3(0, 0.21, 0.0), Vector3(0.52, 0.1, 0.44), Color("b5eff2"))
+			box(parent, Vector3(0, 0.29, -0.08), Vector3(0.18, 0.12, 0.16), Color("78d9e6"), 0.5)
+		"accelerator":
+			horizontal_barrel(parent, Vector3(0, -0.02, -0.25), 0.22, 1.0, steel)
+			horizontal_barrel(parent, Vector3(0, -0.02, -0.81), 0.28, 0.14, Color("70c4d5"), 0.55)
+			for side in [-1, 1]:
+				box(parent, Vector3(side * 0.29, 0.04, -0.2), Vector3(0.1, 0.22, 0.76), frame)
+				box(parent, Vector3(side * 0.29, 0.04, -0.2), Vector3(0.06, 0.08, 0.58), Color("84d5e0"), 0.35)
+			box(parent, Vector3(0, 0.14, -0.04), Vector3(0.38, 0.12, 0.32), frame)
 
 func build_equipment_model(parent: Node3D, id: String) -> void:
 	var frame = Color("263841")
@@ -1103,6 +1151,35 @@ func enemy_parts(kind: String, color: Color) -> Array:
 			add_visual_part(parts, Vector3(0, 1.43, -0.02), Vector3(0.4, 0.33, 0.37), steel)
 			add_visual_part(parts, Vector3(0, 1.42, -0.22), Vector3(0.24, 0.07, 0.035), Color("9bf0b2"))
 			add_visual_part(parts, Vector3(0, 0.84, -0.28), Vector3(0.28, 0.3, 0.08), Color("a9e1bd"))
+		"lancer":
+			for side in [-1, 1]:
+				add_visual_part(parts, Vector3(side * 0.2, 0.28, 0.02), Vector3(0.2, 0.5, 0.27), joint)
+				add_visual_part(parts, Vector3(side * 0.2, 0.1, -0.08), Vector3(0.28, 0.14, 0.38), steel)
+				add_visual_part(parts, Vector3(side * 0.42, 0.88, 0.04), Vector3(0.18, 0.52, 0.23), plate, "box", Vector3(0, 0, side * -0.08))
+				add_visual_part(parts, Vector3(side * 0.4, 1.11, 0.08), Vector3(0.2, 0.24, 0.28), steel)
+			add_visual_part(parts, Vector3(0, 0.82, 0.04), Vector3(0.62, 0.61, 0.48), color)
+			add_visual_part(parts, Vector3(0, 0.96, -0.27), Vector3(0.55, 0.32, 0.1), plate)
+			add_visual_part(parts, Vector3(0, 1.43, 0.0), Vector3(0.39, 0.32, 0.39), steel)
+			add_visual_part(parts, Vector3(0, 1.43, -0.22), Vector3(0.27, 0.08, 0.035), optic)
+			add_visual_part(parts, Vector3(0.22, 1.68, 0.18), Vector3(0.055, 0.42, 0.055), steel, "cylinder", Vector3(0, 0, -0.12))
+			add_visual_part(parts, Vector3(0.22, 1.9, 0.18), Vector3(0.24, 0.07, 0.24), Color("78d8d2"), "cylinder")
+			add_visual_part(parts, Vector3(-0.34, 0.96, -0.25), Vector3(0.18, 0.2, 0.48), joint)
+			add_visual_part(parts, Vector3(-0.34, 0.96, -0.52), Vector3(0.13, 0.12, 0.42), steel, "cylinder")
+		"regenerator":
+			for side in [-1, 1]:
+				add_visual_part(parts, Vector3(side * 0.25, 0.26, 0.02), Vector3(0.29, 0.48, 0.34), joint)
+				add_visual_part(parts, Vector3(side * 0.27, 0.1, -0.06), Vector3(0.37, 0.15, 0.44), steel)
+				add_visual_part(parts, Vector3(side * 0.55, 0.88, 0.04), Vector3(0.32, 0.47, 0.53), plate)
+				add_visual_part(parts, Vector3(side * 0.57, 0.9, -0.25), Vector3(0.22, 0.34, 0.12), trim)
+				add_visual_part(parts, Vector3(side * 0.47, 1.15, 0.31), Vector3(0.21, 0.46, 0.22), Color("329d89"), "cylinder")
+				add_visual_part(parts, Vector3(side * 0.47, 1.15, 0.31), Vector3(0.25, 0.09, 0.25), Color("79e4bd"), "cylinder")
+			add_visual_part(parts, Vector3(0, 0.81, 0.03), Vector3(0.9, 0.75, 0.65), color)
+			add_visual_part(parts, Vector3(0, 0.96, -0.34), Vector3(0.76, 0.46, 0.14), plate)
+			add_visual_part(parts, Vector3(0, 0.97, -0.43), Vector3(0.52, 0.22, 0.05), steel)
+			add_visual_part(parts, Vector3(0, 0.97, -0.47), Vector3(0.26, 0.18, 0.06), Color("75edc2"), "cylinder")
+			add_visual_part(parts, Vector3(0, 1.41, 0.02), Vector3(0.5, 0.38, 0.48), joint)
+			add_visual_part(parts, Vector3(0, 1.42, -0.25), Vector3(0.33, 0.09, 0.04), Color("b0ffd8"))
+			add_visual_part(parts, Vector3(0, 1.18, 0.4), Vector3(0.54, 0.08, 0.08), Color("61c8a5"))
 		"exploder":
 			for side in [-1, 1]:
 				add_visual_part(parts, Vector3(side * 0.22, 0.31, 0.03), Vector3(0.22, 0.55, 0.26), joint)

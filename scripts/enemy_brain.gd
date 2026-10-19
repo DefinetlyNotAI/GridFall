@@ -1,5 +1,43 @@
 extends RefCounted
 
+static func release_hunt(game: Variant, enemy: Dictionary) -> void:
+	var key = str(enemy.get("hunt_key", ""))
+	if game.hunter_targets.has(key):
+		game.hunter_targets[key].erase(int(enemy.uid))
+		if game.hunter_targets[key].is_empty(): game.hunter_targets.erase(key)
+	enemy.hunt_key = ""
+
+static func structure_target(game: Variant, enemy: Dictionary, pos: Vector3) -> String:
+	var acquire = 12.0 if enemy.type == "breaker" else 10.0
+	var previous = str(enemy.get("hunt_key", ""))
+	if game.world.construction.has(previous) and pos.distance_to(game.structure_position(previous)) <= acquire + 2.0:
+		return previous
+	release_hunt(game, enemy)
+	if game.elapsed < float(enemy.get("hunt_search_at", 0.0)): return ""
+	enemy.hunt_search_at = game.elapsed + 0.75 + float(int(enemy.uid) % 5) * 0.05
+	var best = acquire
+	var chosen = ""
+	for key in game.world.construction:
+		var structure: Dictionary = game.world.construction[key]
+		if structure.kind == "trap" or (enemy.type == "saboteur" and structure.kind != "tower"): continue
+		if game.hunter_targets.get(key, []).size() >= 2: continue
+		var target: Vector3 = game.structure_position(key)
+		var distance = pos.distance_to(target)
+		if distance >= best: continue
+		var point: Vector2i = game.world.point(key)
+		if game.world.mount_height(point, structure.id) > float(enemy.range) and not game.world.can_destroy(point): continue
+		var excluded: Array[RID] = [enemy.node.get_rid()]
+		if game.visuals.structures.has(key): excluded.append(game.visuals.structures[key].get_rid())
+		var hit: Dictionary = game.ray(pos + Vector3.UP * 1.2, target + Vector3.UP * 1.2, 1, excluded)
+		if not hit.is_empty() and not (hit.collider.has_meta("tile") and str(hit.collider.get_meta("tile")) == key): continue
+		chosen = key
+		best = distance
+	if chosen != "":
+		if not game.hunter_targets.has(chosen): game.hunter_targets[chosen] = []
+		game.hunter_targets[chosen].append(int(enemy.uid))
+		enemy.hunt_key = chosen
+	return chosen
+
 static func wants_player_target(enemy: Dictionary, pos: Vector3, player_pos: Vector3, player_visible: bool) -> bool:
 	if enemy.get("type", "") not in ["runner", "exploder"] or not player_visible:
 		enemy.player_target = false
