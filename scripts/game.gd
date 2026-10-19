@@ -18,6 +18,8 @@ var hunter_targets: Dictionary = {}
 var field_repair_ready_at = 0.0
 var enemy_cursor = 0
 var enemy_batch = 512
+var tower_scans: Dictionary = {}
+var tower_cursor = 0
 var spectator = false
 const TARGET_MODES = ["Nearest", "Strongest", "Weakest", "First", "Last", "Lowest health", "Highest threat"]
 var catalog: Dictionary
@@ -412,6 +414,8 @@ func start_run(run_mode: String = "endless", custom: Dictionary = {}, restoring:
 func clear_run() -> void:
 	if is_instance_valid(campaign): campaign.clear()
 	hunter_targets.clear()
+	tower_scans.clear()
+	tower_cursor = 0
 	field_repair_ready_at = 0.0
 	spectator = false
 	enemy_index.clear()
@@ -901,6 +905,7 @@ func damage_structure(key: String, amount: float) -> void:
 	if item.health <= 0:
 		visuals.burst(world.position(world.point(key), 1), Color(item.color), 10)
 		world.construction.erase(key)
+		tower_scans.erase(key)
 		visuals.structure(key)
 
 func repair_cost(item: Dictionary, amount: float, in_field: bool = false) -> int:
@@ -1144,6 +1149,7 @@ func preview_wave() -> Dictionary:
 func start_wave() -> bool:
 	if mode == "campaign" or spectator or state != "preparation" or reward_pending:
 		return false
+	tower_scans.clear()
 	var checkpoint_ok = save_run() if eligible else true
 	wave += 1
 	wave_contract.clear()
@@ -1292,6 +1298,7 @@ func spawn_enemy(id: String, spawn_pos: Vector3 = Vector3.ZERO) -> void:
 func finish_wave() -> void:
 	if state != "wave" or completed >= wave or queued_enemies() > 0 or not enemies.is_empty():
 		return
+	tower_scans.clear()
 	completed = wave
 	state = "completion"
 	clear_projectiles()
@@ -2138,17 +2145,82 @@ func intercept_projectile(key: String, tower: Dictionary, pos: Vector3) -> void:
 			head.look_at(Vector3(target_pos.x, head.global_position.y, target_pos.z))
 	audio.cue("shot", pos, 0.1)
 
+func tower_target_score(enemy: Dictionary, pos: Vector3, target_mode: int) -> float:
+	match target_mode:
+		1: return enemy.max_health
+		2: return -enemy.max_health
+		3: return -float(world.flow.get(world.cell_key(world.cell(enemy.node.position)), 9999))
+		4: return float(world.flow.get(world.cell_key(world.cell(enemy.node.position)), 9999))
+		5: return -enemy.health
+		6: return enemy.damage * enemy.speed
+	return -pos.distance_to(enemy.node.position + Vector3.UP)
+
+func tower_target_visible(uid: int, pos: Vector3, radius: float, excluded: Array[RID], mortar: bool) -> bool:
+	if not enemies.has(uid): return false
+	var target = enemies[uid].node.position + Vector3.UP
+	return pos.distance_squared_to(target) <= radius * radius and (mortar or sight(pos, target, excluded, true))
+
+func acquire_tower_target(key: String, tower: Dictionary, pos: Vector3, radius: float, excluded: Array[RID], deadline: int) -> int:
+	if enemies.is_empty():
+		tower_scans.erase(key)
+		return -1
+	if not tower_scans.has(key) or tower_scans[key].mode != tower.target_mode or tower_scans[key].origin != pos or tower_scans[key].radius != radius:
+		tower_scans[key] = {"cell": -1, "member": 0, "end": -1, "target": -1, "score": -1e20, "current": int(tower.last_target), "next_at": 0.0, "mode": tower.target_mode, "origin": pos, "radius": radius}
+	var scan: Dictionary = tower_scans[key]
+	if scan.current >= 0 and not tower_target_visible(scan.current, pos, radius, excluded, tower.id == "mortar"):
+		scan.current = -1
+		scan.next_at = minf(scan.next_at, elapsed)
+	if scan.cell < 0:
+		if elapsed < scan.next_at: return scan.current
+		scan.cell = 0
+		scan.member = 0
+		scan.end = -1
+		scan.target = scan.current
+		scan.score = tower_target_score(enemies[scan.current], pos, tower.target_mode) if scan.current >= 0 else -1e20
+	elif scan.target >= 0:
+		if tower_target_visible(scan.target, pos, radius, excluded, tower.id == "mortar"):
+			scan.score = tower_target_score(enemies[scan.target], pos, tower.target_mode)
+		else:
+			scan.target = scan.current
+			scan.score = tower_target_score(enemies[scan.current], pos, tower.target_mode) if scan.current >= 0 else -1e20
+	var center = Vector2i(floori(pos.x / enemy_index.CELL), floori(pos.z / enemy_index.CELL))
+	var offsets = enemy_index.nearby_offsets(ceili(radius / enemy_index.CELL))
+	while scan.cell < offsets.size() and Time.get_ticks_usec() < deadline:
+		var members: Array = enemy_index.buckets.get(center + offsets[scan.cell], [])
+		if scan.end < 0: scan.end = members.size()
+		if scan.member >= mini(scan.end, members.size()):
+			scan.cell += 1
+			scan.member = 0
+			scan.end = -1
+			continue
+		var uid = int(members[scan.member])
+		scan.member += 1
+		if not enemies.has(uid): continue
+		var score = tower_target_score(enemies[uid], pos, tower.target_mode)
+		if score > float(scan.score) and tower_target_visible(uid, pos, radius, excluded, tower.id == "mortar"):
+			scan.target = uid
+			scan.score = score
+	if scan.cell >= offsets.size():
+		scan.current = scan.target if tower_target_visible(scan.target, pos, radius, excluded, tower.id == "mortar") else scan.current
+		scan.cell = -1
+		scan.next_at = elapsed + 0.1
+	return scan.current
+
 func update_towers(delta: float) -> void:
-	for key in world.construction.keys():
+	var search_deadline = Time.get_ticks_usec() + 2000
+	var keys = world.construction.keys()
+	if not keys.is_empty(): tower_cursor = posmod(tower_cursor + 1, keys.size())
+	for tower_index in keys.size():
+		var key = keys[(tower_cursor + tower_index) % keys.size()]
 		if not world.construction.has(key): continue
 		var tower = world.construction[key]
 		tower.cooldown = maxf(0, tower.cooldown - delta)
-		if tower.cooldown > 0: continue
 		var pos = structure_position(key) + Vector3.UP * 2.1
 		if tower.id == "interceptor":
-			intercept_projectile(key, tower, pos)
+			if tower.cooldown <= 0: intercept_projectile(key, tower, pos)
 			continue
 		if tower.kind == "repair" and repairs_allowed():
+			if tower.cooldown > 0: continue
 			tower.cooldown = 1
 			for other_key in world.construction:
 				var other = world.construction[other_key]
@@ -2157,35 +2229,18 @@ func update_towers(delta: float) -> void:
 			continue
 		if tower.kind not in ["tower", "trap"]: continue
 		var search_start = Time.get_ticks_usec() if autoplay else 0
-		var target = -1
-		var best_score = -1e20
 		var targeting_range = tower.range * (1 + bonus("range") + bonus("tower_range"))
 		var exclude: Array[RID] = []
 		if visuals.structures.has(key): exclude.append(visuals.structures[key].get_rid())
-		for uid in enemy_index.nearby(pos, targeting_range):
-			var enemy = enemies[uid]
-			var ep = enemy.node.position + Vector3.UP
-			var distance = pos.distance_to(ep)
-			if distance > targeting_range: continue
-			var score = -distance
-			match int(tower.target_mode):
-				1: score = enemy.max_health
-				2: score = -enemy.max_health
-				3: score = -float(world.flow.get(world.cell_key(world.cell(enemy.node.position)), 9999))
-				4: score = float(world.flow.get(world.cell_key(world.cell(enemy.node.position)), 9999))
-				5: score = -enemy.health
-				6: score = enemy.damage * enemy.speed
-			if score > best_score:
-				if tower.id != "mortar" and not sight(pos, ep, exclude, true): continue
-				best_score = score
-				target = uid
+		var target = acquire_tower_target(key, tower, pos, targeting_range, exclude, search_deadline)
 		if autoplay:
 			var search_ms = (Time.get_ticks_usec() - search_start) / 1000.0
 			if search_ms > simulation_phases.get("tower_search_peak_ms", 0):
 				simulation_phases.tower_search_peak_ms = search_ms
 				simulation_phases.tower_search_peak = tower.id
+		if tower.cooldown > 0: continue
 		if target < 0:
-			tower.cooldown = 0.1
+			tower.cooldown = 0.0 if tower_scans.has(key) and tower_scans[key].cell >= 0 else 0.1
 			continue
 		var attack_start = Time.get_ticks_usec() if autoplay else 0
 		var target_pos = enemies[target].node.position + Vector3.UP
@@ -2267,6 +2322,7 @@ func update_towers(delta: float) -> void:
 					damage_enemy(uid, amount * 0.65, "tower", pos)
 		if tower.id == "mine":
 			world.construction.erase(key)
+			tower_scans.erase(key)
 			visuals.structure(key)
 		else:
 			visuals.beam(pos, target_pos, Color(tower.color), 0.045, 0.15)
