@@ -78,6 +78,14 @@ var level = 1
 var next_xp = 30
 var pending_levels = 0
 var reward_pending = false
+var contract_choice = ""
+var wave_contract: Dictionary = {}
+var supply_cache: Array = []
+const CONTRACTS = {
+	"operator": {"name": "Operator", "stat": "weapon_damage", "base": 70, "scale": 40, "cap": 4000},
+	"engineer": {"name": "Engineer", "stat": "tower_damage", "base": 150, "scale": 50, "cap": 5000},
+	"guardian": {"name": "Guardian", "stat": "core_damage_taken", "base": 0, "scale": 0, "cap": 0}
+}
 var last_reward = 0
 var defeat_reason = ""
 var kill_streak = 0
@@ -363,6 +371,9 @@ func start_run(run_mode: String = "endless", custom: Dictionary = {}, restoring:
 	kill_streak = 0
 	kill_timer = 0
 	reward_pending = false
+	contract_choice = ""
+	wave_contract.clear()
+	supply_cache.clear()
 	upgrade_picks = 0
 	stats = {"wave": 1, "kills": 0, "bosses": 0, "damage": 0.0, "weapon_damage": 0.0, "tower_damage": 0.0, "ability_damage": 0.0, "built": 0, "earned": 0, "spent": 0, "streak": 0, "difficulty": 1.35 if mode == "challenge" else 1.0}
 	stats.merge({"difficulty": Rules.MODES[mode].difficulty, "mode": mode, "explosive_damage": 0.0, "elemental_damage": 0.0, "close_damage": 0.0, "core_damage_taken": 0.0, "loot_collected": 0, "weapon_usage": {}}, true)
@@ -1084,6 +1095,10 @@ func start_wave() -> bool:
 		return false
 	var checkpoint_ok = save_run() if eligible else true
 	wave += 1
+	wave_contract.clear()
+	if CONTRACTS.has(contract_choice):
+		var definition: Dictionary = CONTRACTS[contract_choice]
+		wave_contract = {"id": contract_choice, "wave": wave, "baseline": float(stats.get(definition.stat, 0)), "target": contract_target(contract_choice, wave), "status": "active"}
 	stats.wave = wave
 	state = "wave"
 	ui.close_overlay()
@@ -1124,6 +1139,63 @@ func start_wave() -> bool:
 	ui.notify("WAVE %d%s%s" % [wave, " · " + event_name if event_name != "" else "", "\nCheckpoint could not be saved; the current run is still active." if not checkpoint_ok else ""])
 	audio.cue("wave")
 	return true
+
+func contract_target(id: String, number: int) -> float:
+	var definition: Dictionary = CONTRACTS[id]
+	return minf(definition.cap, definition.base + number * definition.scale)
+
+func select_contract(id: String) -> void:
+	if state != "preparation" or reward_pending or mode == "campaign" or spectator: return
+	if id != "" and not CONTRACTS.has(id): return
+	contract_choice = id
+	if eligible: save_run()
+	ui.show_planning()
+
+func contract_description(id: String, number: int) -> String:
+	if id == "guardian": return "Clear the wave without core integrity damage"
+	return "Deal %d %s damage this wave" % [contract_target(id, number), "weapon" if id == "operator" else "tower"]
+
+func contract_progress() -> float:
+	if wave_contract.is_empty(): return 0
+	var key: String = CONTRACTS[wave_contract.id].stat
+	return maxf(0, float(stats.get(key, 0)) - float(wave_contract.baseline))
+
+func resolve_contract() -> void:
+	if wave_contract.is_empty() or wave_contract.status != "active" or int(wave_contract.wave) != wave: return
+	var success = contract_progress() <= 0 if wave_contract.id == "guardian" else contract_progress() >= float(wave_contract.target)
+	wave_contract.status = "complete" if success else "failed"
+	if not success: return
+	var reward = 30 + mini(wave * 8, 600)
+	scrap += reward
+	stats.earned += reward
+	var rarity = mini(3, wave / 8)
+	supply_cache = [
+		{"id": "ammo_cell", "rarity": rarity, "count": 1},
+		{"id": "trauma_kit", "rarity": rarity, "count": 1},
+		{"id": "repair_kit" if repairs_allowed() else "shield_pack", "rarity": rarity, "count": 1}
+	]
+	ui.notify("%s contract complete · +%d scrap and a supply cache" % [CONTRACTS[wave_contract.id].name, reward])
+
+func claim_supply(index: int) -> void:
+	if state != "preparation" or not reward_pending or supply_cache.is_empty(): return
+	if index < -1 or index >= supply_cache.size(): return
+	if index >= 0 and backpack.size() >= capacity:
+		ui.notify("Backpack full. Salvage the cache to continue.")
+		return
+	if index == -1:
+		var value = 25 + int(supply_cache[0].rarity) * 15
+		scrap += value
+		stats.earned += value
+	else:
+		backpack.append(supply_cache[index].duplicate(true))
+	supply_cache.clear()
+	refresh_wave_rewards()
+
+func refresh_wave_rewards() -> void:
+	reward_pending = upgrade_picks > 0 or not supply_cache.is_empty()
+	if reward_pending: ui.show_upgrades()
+	else: ui.close_overlay()
+	if eligible: save_run()
 
 func upcoming_event(number: int) -> String:
 	if number % int(world.rule("boss_interval")) == 0: return "Siege Titan"
@@ -1202,6 +1274,7 @@ func finish_wave() -> void:
 	var reward = 65 + mini(wave * 12, 4000)
 	scrap += reward
 	stats.earned += reward
+	resolve_contract()
 	for key in world.construction:
 		var item = world.construction[key]
 		if item.kind == "generator":
@@ -1293,7 +1366,7 @@ func roll_upgrades() -> void:
 				break
 
 func choose_upgrade(index: int) -> void:
-	if not reward_pending or index < 0 or index >= upgrades.size():
+	if state != "preparation" or not reward_pending or upgrade_picks <= 0 or index < 0 or index >= upgrades.size():
 		return
 	var upgrade = upgrades[index]
 	var applied = float(upgrade.value)
@@ -1314,14 +1387,9 @@ func choose_upgrade(index: int) -> void:
 	if upgrade.effect == "shield":
 		shield += applied
 	upgrade_picks = maxi(0, upgrade_picks - 1)
-	reward_pending = upgrade_picks > 0
-	if reward_pending:
-		roll_upgrades()
-		ui.show_upgrades()
-	else:
-		ui.close_overlay()
-	if eligible:
-		save_run()
+	if upgrade_picks > 0: roll_upgrades()
+	else: upgrades.clear()
+	refresh_wave_rewards()
 
 func defeat(reason: String) -> void:
 	if state != "wave":
@@ -1459,7 +1527,7 @@ func drop_loot(pos: Vector3, boss: bool = false) -> void:
 	if rng.randf() < 0.55 or boss:
 		item = make_weapon(available[rng.randi_range(0, available.size() - 1)], rarity)
 	else:
-		var kinds: Array = ["medkit", "grenade", "armor", "shield_pack"] + catalog.attachments.keys()
+		var kinds: Array = ["medkit", "grenade"] + catalog.equipment.keys() + catalog.attachments.keys()
 		item = {"id": kinds[rng.randi_range(0, kinds.size() - 1)], "count": 1, "rarity": rarity}
 	place_drop(item, pos)
 
@@ -1497,8 +1565,26 @@ func item_name(item: Dictionary) -> String:
 		if catalog.get(group, {}).has(item.id): return catalog[group][item.id].name
 	return str(item.id).replace("_", " ").capitalize()
 
+func equipment_blocked(id: String) -> String:
+	if mode == "campaign" or spectator: return "Unavailable in this mode"
+	if id == "armor" and bonus("armor") >= 0.65: return "Armor at maximum"
+	if id == "shield_pack" and shield >= bonus("shield") + 200: return "Shield overcharge full"
+	if id == "trauma_kit" and health >= max_health: return "Health already full"
+	if id == "repair_kit":
+		if not repairs_allowed(): return "Repairs disabled by run rules"
+		if core_health >= max_core: return "Core integrity already full"
+	if id == "ammo_cell":
+		var active: Dictionary = weapons[active_weapon]
+		if active.id == "" or magazine_size(active) == 0: return "Equip a firearm first"
+		if active.reserve >= 9999: return "Reserve ammunition full"
+	return ""
+
+func equipment_effect(item: Dictionary) -> float:
+	var values: Dictionary = catalog.equipment[item.id].stats
+	return float(values.get("amount", values.get("magazines", 0))) + int(item.get("rarity", 0)) * float(values.get("rarity_bonus", 0))
+
 func inventory_action(index: int, action: String) -> void:
-	if not playing() or state == "paused" or index < 0 or index >= backpack.size():
+	if not playing() or state == "paused" or mode == "campaign" or spectator or index < 0 or index >= backpack.size():
 		return
 	var item = backpack[index]
 	if action in ["equip0", "equip1"] and catalog.weapons.has(item.id):
@@ -1512,6 +1598,11 @@ func inventory_action(index: int, action: String) -> void:
 		reload_timer = 0
 		player.refresh_gun()
 	elif action == "use":
+		if catalog.equipment.has(item.id):
+			var blocked = equipment_blocked(item.id)
+			if blocked != "":
+				ui.notify(blocked)
+				return
 		if catalog.attachments.has(item.id):
 			if weapons[active_weapon].id == "":
 				ui.notify("Equip a weapon before attaching a module.")
@@ -1530,16 +1621,18 @@ func inventory_action(index: int, action: String) -> void:
 			backpack.remove_at(index)
 			if old != "": backpack.append({"id": old, "count": 1, "rarity": old_rarity})
 		elif item.id == "armor":
-			if bonus("armor") >= 0.65:
-				ui.notify("Armor is already at its 65% limit.")
-				return
 			bonuses.armor = minf(0.65, bonus("armor") + 0.05)
 			backpack.remove_at(index)
 		elif item.id == "shield_pack":
-			if shield >= bonus("shield") + 200:
-				ui.notify("Shield overcharge is full.")
-				return
 			shield = minf(bonus("shield") + 200, shield + 30)
+			backpack.remove_at(index)
+		elif item.id in ["ammo_cell", "trauma_kit", "repair_kit"]:
+			var amount = equipment_effect(item)
+			if item.id == "trauma_kit": health = minf(max_health, health + amount)
+			elif item.id == "repair_kit": core_health = minf(max_core, core_health + amount)
+			else:
+				var active: Dictionary = weapons[active_weapon]
+				active.reserve = mini(9999, int(active.reserve + magazine_size(active) * amount))
 			backpack.remove_at(index)
 	elif action in ["scrap", "sell"]:
 		if action == "sell" and state != "preparation": return
@@ -2169,6 +2262,9 @@ func save_run() -> bool:
 	record.extended.challenges = active_challenges
 	record.extended.research = run_research
 	record.extended.field_repair_delay = maxf(0, field_repair_ready_at - elapsed)
+	record.contract_choice = contract_choice
+	record.wave_contract = wave_contract
+	record.supply_cache = supply_cache
 	if not valid_run(record):
 		ui.notify("Run checkpoint failed validation. The previous save is preserved.")
 		return false
@@ -2230,6 +2326,9 @@ func load_run() -> void:
 	core_health = float(r.core)
 	max_core = float(r.max_core)
 	stats = r.stats
+	contract_choice = r.get("contract_choice", "")
+	wave_contract = r.get("wave_contract", {}).duplicate(true)
+	supply_cache = r.get("supply_cache", []).duplicate(true)
 	for key in ["explosive_damage", "elemental_damage", "close_damage", "core_damage_taken", "loot_collected"]:
 		if not stats.has(key): stats[key] = 0
 	if not stats.has("weapon_usage"): stats.weapon_usage = {}
@@ -2348,7 +2447,8 @@ func valid_run(value: Variant) -> bool:
 	var saved_levels = value.get("pending_levels", 0)
 	if not profile.numeric(saved_levels, 0, 1e6) or saved_levels != int(saved_levels): return false
 	if not profile.numeric(pending_picks, 0, 1000000) or pending_picks != int(pending_picks): return false
-	if value.reward_pending != (pending_picks > 0): return false
+	if not valid_contract_save(value): return false
+	if value.reward_pending != (pending_picks > 0 or not value.get("supply_cache", []).is_empty()): return false
 	if not value.get("timers", []) is Array or value.get("timers", [0, 0, 0, 0]).size() != 4: return false
 	for timer in value.get("timers", [0, 0, 0, 0]):
 		if not profile.numeric(timer, 0, 3600): return false
@@ -2405,7 +2505,27 @@ func valid_run(value: Variant) -> bool:
 	for item in value.upgrades:
 		if not item is Dictionary or not item.get("name") is String or not item.get("description") is String or not item.get("effect") is String or not profile.numeric(item.get("value"), 0, 1000): return false
 		if item.has("cap") and not profile.numeric(item.cap, 0, 1000): return false
-	return not value.reward_pending or value.upgrades.size() in [1, 2, 3]
+	return pending_picks <= 0 or value.upgrades.size() in [1, 2, 3]
+
+func valid_contract_save(value: Dictionary) -> bool:
+	var choice: Variant = value.get("contract_choice", "")
+	if not choice is String or (choice != "" and not CONTRACTS.has(choice)): return false
+	var contract: Variant = value.get("wave_contract", {})
+	var cache: Variant = value.get("supply_cache", [])
+	if not contract is Dictionary or not cache is Array: return false
+	if not contract.is_empty():
+		if not contract.get("id") is String or not CONTRACTS.has(contract.id): return false
+		if contract.get("status") not in ["active", "complete", "failed"]: return false
+		if not profile.numeric(contract.get("wave"), 1, 1e12) or contract.wave != value.get("wave"): return false
+		if not profile.numeric(contract.get("baseline"), 0, 1e15): return false
+		if not profile.numeric(contract.get("target"), 0, 5000) or contract.target != contract_target(contract.id, int(contract.wave)): return false
+		if contract.status == "active" and value.get("phase", "preparation") != "wave": return false
+		if contract.status != "active" and value.get("phase", "preparation") != "preparation": return false
+	if not cache.is_empty():
+		if contract.is_empty() or contract.get("status") != "complete" or cache.size() != 3: return false
+		for item in cache:
+			if not valid_item(item) or item.id not in ["ammo_cell", "trauma_kit", "repair_kit", "shield_pack"]: return false
+	return true
 
 func valid_item(item: Variant, allow_empty: bool = false, allow_consumables: bool = false) -> bool:
 	if not item is Dictionary or not item.get("id") is String or not profile.numeric(item.get("rarity"), 0, 4): return false
@@ -2426,7 +2546,7 @@ func valid_item(item: Variant, allow_empty: bool = false, allow_consumables: boo
 		for modifier in item.get("mods", []):
 			if modifier not in ["stabilized", "overclocked", "incendiary", "frost", "vampiric", "volatile", "ricochet"]: return false
 		return true
-	return catalog.attachments.has(item.id) or item.id in ["armor", "shield_pack"] or (allow_consumables and item.id in ["medkit", "grenade"] and profile.numeric(item.get("count", 1), 1, 99))
+	return catalog.attachments.has(item.id) or catalog.equipment.has(item.id) or (allow_consumables and item.id in ["medkit", "grenade"] and profile.numeric(item.get("count", 1), 1, 99))
 
 func remove_run_save() -> void:
 	for path in ["user://run.json", "user://run.json.bak"]:
@@ -2538,6 +2658,7 @@ func benchmark_update(delta: float) -> void:
 			if Time.get_ticks_usec() - spawn_start > 2000: break
 	if state == "preparation":
 		if reward_pending:
+			if not supply_cache.is_empty(): claim_supply(-1)
 			choose_upgrade(0)
 		if eligible:
 			for p in [Vector2i(11, 3), Vector2i(13, 3), Vector2i(11, 5), Vector2i(13, 5), Vector2i(11, 8), Vector2i(13, 8), Vector2i(10, 11), Vector2i(14, 11)]:

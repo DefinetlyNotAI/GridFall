@@ -542,6 +542,13 @@ func show_planning() -> void:
 	button(top, "Rotate placement 90°", func(): build_rotation = (build_rotation + 90) % 360)
 	button(top, "Return to FPS [%s]" % key_name("planning"), close_overlay)
 	button(top, "Start wave [%s]" % key_name("next_wave"), func(): game.start_wave(), game.reward_pending)
+	var contracts = row(body, 8)
+	label(contracts, "OPTIONAL CONTRACT", 15, Color("92abb8")).autowrap_mode = TextServer.AUTOWRAP_OFF
+	for id in [""] + game.CONTRACTS.keys():
+		var title = "None" if id == "" else game.CONTRACTS[id].name
+		var option = button(contracts, ("✓ " if game.contract_choice == id else "") + title, func(): game.select_contract(id), game.reward_pending)
+		option.tooltip_text = "No additional objective" if id == "" else game.contract_description(id, game.wave + 1) + ". Bonus scrap and one supply item on completion."
+	if game.contract_choice != "": label(body, game.contract_description(game.contract_choice, game.wave + 1), 16, Color("e3bb7d"))
 	label(body, "Build on permitted tiles. Dark routes, fixed geometry, markers, and amber gates are protected. Right-click inspects. Wheel zooms; middle drag pans.", 15, Color("94aebc"))
 	var preview_panel = PanelContainer.new()
 	body.add_child(preview_panel)
@@ -671,8 +678,18 @@ func show_upgrades() -> void:
 	var body = column(backdrop())
 	spacer(body)
 	label(body, "WAVE %d CLEARED" % game.wave, 36, Color("7fdfcc"))
+	if not game.wave_contract.is_empty():
+		label(body, "%s contract / %s" % [game.CONTRACTS[game.wave_contract.id].name, game.wave_contract.status.to_upper()], 18, Color("e3bb7d"))
+	if not game.supply_cache.is_empty():
+		label(body, "SUPPLY CACHE / CHOOSE ONE", 18, Color("7fdfcc"))
+		var supplies = row(body, 12)
+		for i in game.supply_cache.size():
+			var item = game.supply_cache[i]
+			button(supplies, "%s / %s" % [game.item_name(item), ["Common", "Uncommon", "Rare", "Epic", "Legendary"][int(item.rarity)]], func(): game.claim_supply(i), game.backpack.size() >= game.capacity).tooltip_text = game.catalog.equipment[item.id].description
+		button(supplies, "Salvage / %d scrap" % (25 + int(game.supply_cache[0].rarity) * 15), func(): game.claim_supply(-1))
+		if game.backpack.size() >= game.capacity: label(body, "Backpack full. Salvage the cache to continue.", 16, Color("e3bb7d"))
 	label(body, "LEVEL %d / %d UPGRADE CHOICE%s REMAINING" % [game.level, game.upgrade_picks, "S" if game.upgrade_picks != 1 else ""], 16, Color("e3bb7d"))
-	label(body, "Choose a temporary upgrade for this run.", 20)
+	if game.upgrade_picks > 0: label(body, "Choose a temporary upgrade for this run.", 20)
 	label(body, "XP %d / %d toward level %d" % [game.xp, game.next_xp, game.level + 1], 16, Color("92abb8"))
 	var choices = row(body, 20)
 	for i in game.upgrades.size():
@@ -883,8 +900,10 @@ func show_inventory() -> void:
 			if game.catalog.attachments.has(item.id):
 				if active.id == "": blocked = "Equip a weapon first"
 				elif not game.attachment_compatible(item.id, active): blocked = "Incompatible with active weapon"
-			elif item.id == "armor" and game.bonus("armor") >= 0.65: blocked = "Armor at maximum"
-			elif item.id == "shield_pack" and game.shield >= game.bonus("shield") + 200: blocked = "Shield overcharge full"
+			elif game.catalog.equipment.has(item.id):
+				blocked = game.equipment_blocked(item.id)
+				if item.id in ["ammo_cell", "repair_kit", "trauma_kit"]:
+					readout(detail, "Restore", "%d %s" % [game.equipment_effect(item), "magazines to reserve" if item.id == "ammo_cell" else ("core HP" if item.id == "repair_kit" else "HP")])
 			button(detail, blocked if blocked != "" else "Use / attach to active weapon", func(): game.inventory_action(inventory_selected, "use"), blocked != "")
 		section(detail, "SALVAGE & TRANSFER")
 		var salvage = 15 + int(item.get("rarity", 0)) * 12
@@ -1274,6 +1293,10 @@ func _process(delta: float) -> void:
 		var phase = "PREPARATION" if game.state == "preparation" else game.state.to_upper()
 		hud_top.text = "WAVE %02d / %s\nCORE %d / %d   ·   %d SCRAP\nHOSTILES %d + %d INBOUND" % [game.wave, phase, game.core_health, game.max_core, game.scrap, game.enemies.size(), game.queued_enemies()]
 		if game.core_shield > 0: hud_top.text += " · CORE SHIELD %d" % game.core_shield
+		if game.state == "wave" and not game.wave_contract.is_empty():
+			var contract: Dictionary = game.wave_contract
+			var progress = game.contract_progress()
+			hud_top.text += "\n%s / %s" % [game.CONTRACTS[contract.id].name.to_upper(), ("CORE INTACT" if progress <= 0 else "FAILED") if contract.id == "guardian" else "%d / %d" % [mini(int(progress), int(contract.target)), contract.target]]
 		hud_left.text = "HEALTH  %d / %d\nSHIELD  %d\nPULSE  %s" % [game.health, game.max_health, game.shield, "READY [%s]" % key_name("ability") if game.ability_timer <= 0 else "%.1fs" % game.ability_timer]
 		if game.perk("pulse_matrix") > 0: hud_left.text += "\nRESTORE %s" % ("READY [%s]" % key_name("restoration") if game.restoration_timer <= 0 else "%.1fs" % game.restoration_timer)
 		if game.profile.data.settings.stamina: hud_left.text += "\nSTAMINA %d" % game.player.stamina

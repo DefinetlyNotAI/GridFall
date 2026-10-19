@@ -249,6 +249,21 @@
       "description": "Restore 30 shield, including overcharge up to 200 above your capacity.",
       "stats": {"shield": 30},
       "overcharge": 200
+    },
+    "ammo_cell": {
+      "name": "Ammo Cell",
+      "description": "Restore 3 magazines of reserve ammunition for your active firearm, plus 1 magazine per rarity level.",
+      "stats": {"magazines": 3, "rarity_bonus": 1}
+    },
+    "repair_kit": {
+      "name": "Repair Kit",
+      "description": "Restore 80 core health, plus 30 per rarity level. Usable during preparation or a wave; disabled by no-repair rules.",
+      "stats": {"amount": 80, "rarity_bonus": 30}
+    },
+    "trauma_kit": {
+      "name": "Trauma Kit",
+      "description": "Restore 40 player health, plus 15 per rarity level.",
+      "stats": {"amount": 40, "rarity_bonus": 15}
     }
   },
   "structures": {

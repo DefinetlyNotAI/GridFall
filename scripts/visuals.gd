@@ -946,6 +946,23 @@ func build_equipment_model(parent: Node3D, id: String) -> void:
 			box(parent, Vector3(0, 0.0, 0), Vector3(0.84, 0.82, 0.38), frame)
 			cylinder(parent, Vector3(0, 0.1, -0.23), 0.31, 0.16, Color("78c8f0"), 1.0)
 			for side in [-1, 1]: box(parent, Vector3(side * 0.35, 0.0, -0.22), Vector3(0.12, 0.56, 0.08), Color("8eb4bd"))
+		"ammo_cell":
+			box(parent, Vector3(0, 0.0, 0), Vector3(0.82, 0.58, 0.54), frame)
+			box(parent, Vector3(0, 0.0, -0.29), Vector3(0.64, 0.38, 0.05), Color("b68b50"))
+			for side in [-1, 0, 1]:
+				box(parent, Vector3(side * 0.2, 0.0, -0.34), Vector3(0.1, 0.28, 0.04), Color("e1c27b"))
+			box(parent, Vector3(0, 0.34, 0), Vector3(0.46, 0.12, 0.42), Color("8c9b95"))
+		"repair_kit":
+			box(parent, Vector3(0, 0.0, 0), Vector3(0.94, 0.62, 0.62), Color("bc784c"))
+			box(parent, Vector3(0, 0.0, -0.33), Vector3(0.54, 0.4, 0.05), Color("354b4b"))
+			box(parent, Vector3(0, 0.0, -0.37), Vector3(0.1, 0.32, 0.035), Color("d5c08a"))
+			box(parent, Vector3(0, 0.0, -0.37), Vector3(0.34, 0.1, 0.035), Color("d5c08a"))
+			box(parent, Vector3(0, 0.36, 0), Vector3(0.5, 0.1, 0.48), Color("d0ad72"))
+		"trauma_kit":
+			box(parent, Vector3(0, 0.0, 0), Vector3(0.9, 0.62, 0.6), Color("d9dfd4"))
+			box(parent, Vector3(0, 0.0, -0.31), Vector3(0.2, 0.44, 0.04), Color("c95850"))
+			box(parent, Vector3(0, 0.0, -0.32), Vector3(0.44, 0.18, 0.04), Color("c95850"))
+			box(parent, Vector3(0, 0.35, 0), Vector3(0.58, 0.1, 0.48), Color("9aada7"))
 		"medkit":
 			box(parent, Vector3(0, 0.0, 0), Vector3(0.9, 0.62, 0.6), Color("d9dfd4"))
 			box(parent, Vector3(0, 0.0, -0.31), Vector3(0.18, 0.42, 0.04), Color("d85f54"))
