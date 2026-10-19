@@ -1066,8 +1066,9 @@ func queued_enemies() -> int:
 	for count in spawn_reserve.values(): total += int(count)
 	return total
 
-func reserve_budget(budget: float, pool: Array) -> void:
-	if budget < 7 or pool.is_empty(): return
+func reserve_budget(budget: float, pool: Array) -> Dictionary:
+	var reserve: Dictionary = {}
+	if budget < 7 or pool.is_empty(): return reserve
 	var weights: Dictionary = {}
 	var cost = 0.0
 	for id in pool:
@@ -1076,7 +1077,8 @@ func reserve_budget(budget: float, pool: Array) -> void:
 	var population = int(floor(budget / (cost / pool.size())))
 	for id in weights:
 		var count = int(floor(float(population) * weights[id] / pool.size()))
-		if count > 0: spawn_reserve[id] = count
+		if count > 0: reserve[id] = count
+	return reserve
 
 func refill_spawns() -> void:
 	if not spawn_queue.is_empty(): return
@@ -1093,6 +1095,49 @@ func refill_spawns() -> void:
 			roll -= count
 	if remaining == 0: spawn_reserve.clear()
 
+func compose_wave(number: int, random: RandomNumberGenerator) -> Dictionary:
+	var queue: Array = []
+	var budget = minf(1e12, (28 + number * 16 + pow(minf(number, 5000), 1.15) * 2) * world.rule("budget_multiplier"))
+	if mode == "siege": budget = minf(1e12, budget * 1.25)
+	var faction = Rules.faction(stats, number, adaptive_run)
+	if number % int(world.rule("boss_interval")) == 0:
+		queue.append("boss")
+		budget -= 120
+	var pool: Array = []
+	for id in catalog.enemies:
+		if id != "boss" and catalog.enemies[id].min_wave <= number:
+			pool.append(id)
+			if id == Rules.favored(faction): pool.append_array([id, id])
+	var scheduled_event = upcoming_event(number)
+	if scheduled_event in ["Explosive swarm", "Elite invasion"]:
+		var replacement = "exploder" if scheduled_event == "Explosive swarm" else "tank"
+		var extra_weight = maxi(1, ceili(float(pool.size()) / (2 if scheduled_event == "Explosive swarm" else 3)))
+		for i in extra_weight: pool.append(replacement)
+		if scheduled_event == "Elite invasion": budget /= 1.45
+	var count = 0
+	while budget >= 7 and count < 600:
+		var id = pool[random.randi_range(0, pool.size() - 1)]
+		if catalog.enemies[id].cost > budget:
+			var affordable = pool.filter(func(candidate): return catalog.enemies[candidate].cost <= budget)
+			if affordable.is_empty(): break
+			id = affordable[random.randi_range(0, affordable.size() - 1)]
+		queue.append(id)
+		budget -= catalog.enemies[id].cost
+		count += 1
+	var reserve = reserve_budget(budget, pool)
+	var counts = reserve.duplicate()
+	for id in queue: counts[id] = int(counts.get(id, 0)) + 1
+	var total = 0
+	for count_value in counts.values(): total += int(count_value)
+	return {"queue": queue, "reserve": reserve, "counts": counts, "total": total, "event": scheduled_event, "faction": faction, "active_spawns": world.spawns(completed).size()}
+
+func preview_wave() -> Dictionary:
+	if state != "preparation" or mode == "campaign" or spectator: return {}
+	var preview_rng = RandomNumberGenerator.new()
+	preview_rng.seed = rng.seed
+	preview_rng.state = rng.state
+	return compose_wave(wave + 1, preview_rng)
+
 func start_wave() -> bool:
 	if mode == "campaign" or spectator or state != "preparation" or reward_pending:
 		return false
@@ -1106,38 +1151,12 @@ func start_wave() -> bool:
 	state = "wave"
 	ui.close_overlay()
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE if autoplay else Input.MOUSE_MODE_CAPTURED
-	spawn_queue.clear()
-	spawn_reserve.clear()
-	var budget = minf(1e12, (28 + wave * 16 + pow(minf(wave, 5000), 1.15) * 2) * world.rule("budget_multiplier"))
-	if mode == "siege": budget = minf(1e12, budget * 1.25)
-	faction_name = Rules.faction(stats, wave, adaptive_run)
-	if wave % int(world.rule("boss_interval")) == 0:
-		spawn_queue.append("boss")
-		budget -= 120
-	var pool: Array = []
-	for id in catalog.enemies:
-		if id != "boss" and catalog.enemies[id].min_wave <= wave:
-			pool.append(id)
-			if id == Rules.favored(faction_name): pool.append_array([id, id])
-	var scheduled_event = upcoming_event(wave)
-	if scheduled_event in ["Explosive swarm", "Elite invasion"]:
-		var replacement = "exploder" if scheduled_event == "Explosive swarm" else "tank"
-		var extra_weight = maxi(1, ceili(float(pool.size()) / (2 if scheduled_event == "Explosive swarm" else 3)))
-		for i in extra_weight: pool.append(replacement)
-		if scheduled_event == "Elite invasion": budget /= 1.45
-	var count = 0
-	while budget >= 7 and count < 600:
-		var id = pool[rng.randi_range(0, pool.size() - 1)]
-		if catalog.enemies[id].cost > budget:
-			var affordable = pool.filter(func(candidate): return catalog.enemies[candidate].cost <= budget)
-			if affordable.is_empty(): break
-			id = affordable[rng.randi_range(0, affordable.size() - 1)]
-		spawn_queue.append(id)
-		budget -= catalog.enemies[id].cost
-		count += 1
-	reserve_budget(budget, pool)
+	var plan = compose_wave(wave, rng)
+	spawn_queue = plan.queue
+	spawn_reserve = plan.reserve
+	faction_name = plan.faction
 	spawn_timer = 0.2
-	event_name = upcoming_event(wave)
+	event_name = plan.event
 	visuals.set_weather("Acid rain" if challenge("acid_rain") else event_name, wave)
 	ui.notify("WAVE %d%s%s" % [wave, " · " + event_name if event_name != "" else "", "\nCheckpoint could not be saved; the current run is still active." if not checkpoint_ok else ""])
 	audio.cue("wave")

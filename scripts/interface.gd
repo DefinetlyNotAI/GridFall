@@ -42,6 +42,7 @@ var settings_section = "Gameplay"
 var hud_refresh = 0.0
 var planning_category = 0
 var planning_schedule = false
+var planning_intel = false
 var campaign_selected = -1
 
 func setup(owner_game) -> void:
@@ -530,6 +531,7 @@ func show_planning() -> void:
 	notice_time = 0
 	selected_key = ""
 	planning_action = ""
+	planning_intel = false
 	replace_key = ""
 	if not game.unlocked(game.catalog.structures[build_id]) or (not game.repairs_allowed() and game.catalog.structures[build_id].kind == "repair"): build_id = "sentry"
 	overlay = "planning"
@@ -582,9 +584,32 @@ func refresh_planning() -> void:
 	if not is_instance_valid(planning_detail): return
 	clear_children(planning_detail)
 	label(planning_detail, "%d SCRAP" % game.scrap, 26, Color("f1c784"))
-	label(planning_detail, "Next event: " + (game.upcoming_event(game.wave + 1) if game.upcoming_event(game.wave + 1) != "" else "Standard assault"), 16)
-	var faction = game.Rules.faction(game.stats, game.wave + 1, game.adaptive_run)
+	var intel: Dictionary = game.preview_wave()
+	var event_name = str(intel.get("event", ""))
+	label(planning_detail, "Next event: " + (event_name if event_name != "" else "Standard assault"), 16)
+	var faction = str(intel.get("faction", "None"))
 	if faction != "None": label(planning_detail, faction + " / " + game.Rules.faction_detail(faction), 15, Color("dbb087"))
+	var intel_toggle = button(planning_detail, "Wave intel / %d" % int(intel.get("total", 0)), func(): planning_intel = not planning_intel; refresh_planning())
+	intel_toggle.tooltip_text = "Scheduled hostiles. Summoned reinforcements are additional."
+	if planning_intel:
+		var portal_count = label(planning_detail, "Active portals: %d" % int(intel.get("active_spawns", 0)), 15, Color("92abb8"))
+		portal_count.autowrap_mode = TextServer.AUTOWRAP_OFF
+		var counts: Dictionary = intel.get("counts", {})
+		for id in game.catalog.enemies:
+			var count = int(counts.get(id, 0))
+			if count <= 0: continue
+			var enemy = game.catalog.enemies[id]
+			var enemy_row = row(planning_detail, 6)
+			var enemy_name = label(enemy_row, str(enemy.name), 15)
+			enemy_name.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			enemy_name.autowrap_mode = TextServer.AUTOWRAP_OFF
+			var tactic = str(field_guide.ENEMY_TACTICS.get(id, ""))
+			if tactic != "": enemy_row.tooltip_text = tactic
+			var count_label = label(enemy_row, str(count), 15, Color("d5e2e8"))
+			count_label.autowrap_mode = TextServer.AUTOWRAP_OFF
+			if int(enemy.get("min_wave", 1)) == game.wave + 1:
+				var availability = label(enemy_row, "FIRST THIS WAVE", 12, Color("e3bb7d"))
+				availability.autowrap_mode = TextServer.AUTOWRAP_OFF
 	var pending_events = game.world.map.events.filter(func(event): return event.id not in game.world.applied)
 	if not pending_events.is_empty():
 		button(planning_detail, "%s world schedule / %d events" % ["Hide" if planning_schedule else "Show", pending_events.size()], func(): planning_schedule = not planning_schedule; refresh_planning())
