@@ -8,6 +8,7 @@ const Interface = preload("res://scripts/interface.gd")
 const Sound = preload("res://scripts/audio.gd")
 const Rules = preload("res://scripts/run_rules.gd")
 const CombatSave = preload("res://scripts/combat_save.gd")
+const EnemyBrain = preload("res://scripts/enemy_brain.gd")
 const EnemyIndex = preload("res://scripts/enemy_index.gd")
 var enemy_index = EnemyIndex.new()
 var wounded_index = EnemyIndex.new()
@@ -1708,36 +1709,39 @@ func update_enemies(frame_delta: float) -> void:
 		var target = objective_pos
 		var target_kind = "core"
 		var target_key = ""
-		if enemy.type in ["runner", "exploder"] and pos.distance_to(player.position) < (18 if enemy.type == "runner" else 12):
-			if sight(pos + Vector3.UP, player.position + Vector3.UP):
+		if enemy.type in ["runner", "exploder"]:
+			var visible = pos.distance_squared_to(player.position) <= 441 and sight(pos + Vector3.UP, player.position + Vector3.UP)
+			if EnemyBrain.wants_player_target(enemy, pos, player.position, visible):
 				target = player.position
 				target_kind = "player"
 		if enemy.type in ["breaker", "saboteur"]:
 			var best = 18.0
 			for key in world.construction:
-				var p = world.position(world.point(key))
+				var p = structure_position(key)
 				var distance = p.distance_to(pos)
+				if key == enemy.get("target_key", ""): distance *= 0.8
 				if distance < best and (enemy.type == "breaker" or world.construction[key].kind == "tower"):
 					best = distance
 					target = p
 					target_kind = "structure"
 					target_key = key
+		var support_positions: Array = []
 		if enemy.type == "support":
+			for ally_uid in wounded_index.nearby(pos, 12, 8):
+				if enemies.has(ally_uid) and ally_uid != uid: support_positions.append(enemies[ally_uid].node.position)
 			if enemy.heal_timer <= 0:
 				enemy.heal_timer = 2
-				for ally_uid in wounded_index.nearby(pos, 8):
+				for ally_uid in wounded_index.nearby(pos, 8, 32):
 					var ally = enemies[ally_uid]
 					if ally.node.position.distance_squared_to(pos) < 64:
 						ally.health = minf(ally.max_health, ally.health + 8)
 						if ally.health >= ally.max_health: wounded_index.remove(ally_uid)
 		var destination = target
+		enemy.target_key = target_key
 		var target_distance = pos.distance_to(target)
 		var reach = float(enemy.range) + (1 if target_kind in ["core", "structure"] else 0)
 		if enemy.type == "boss" and enemy.health < enemy.max_health * 0.5: reach = 14
-		var can_see = true
-		if reach > 4 and target_distance <= reach:
-			var hit = ray(pos + Vector3.UP * 1.2, target + Vector3.UP * 1.2, 5, [node.get_rid()])
-			can_see = hit.is_empty() or (target_kind == "core" and hit.collider.has_meta("core")) or hit.collider == player
+		var can_see = target_distance > reach or EnemyBrain.attack_visible(self, enemy, pos, target, target_kind, target_key)
 		# Visible nearby players can be pursued directly on continuous ground.
 		# This avoids rebuilding a whole-world field for every player tile crossed.
 		if (target_distance > reach or not can_see) and not (target_kind == "player" and world.complete_floor):
@@ -1749,18 +1753,42 @@ func update_enemies(frame_delta: float) -> void:
 			if world.construction.has(next_key) and world.construction[next_key].kind != "trap":
 				target_kind = "structure"
 				target_key = next_key
-				target = destination
+				target = structure_position(next_key)
 				target_distance = pos.distance_to(target)
 				reach = maxf(2.8, float(enemy.range))
-				can_see = true
+				can_see = target_distance > reach or EnemyBrain.attack_visible(self, enemy, pos, target, target_kind, target_key)
+				var mount = world.mount_height(next, world.construction[next_key].id)
+				if world.can_destroy(next) and (not can_see or (mount > 0 and float(enemy.range) < mount + 1.5)):
+					target_kind = "tile"
+					target = destination
+					target_distance = pos.distance_to(target)
+					reach = maxf(3, float(enemy.range))
+					can_see = EnemyBrain.attack_visible(self, enemy, pos, target, target_kind, target_key)
 			elif world.fixed_solid(next):
 				var tile = world.map.layers.structure.get(next_key, {})
 				if world.can_destroy(next):
 					target_kind = "tile"
 					target_key = next_key
+					target = destination
 					target_distance = pos.distance_to(destination)
 					reach = 3
-					can_see = true
+					can_see = target_distance > reach or EnemyBrain.attack_visible(self, enemy, pos, target, target_kind, target_key)
+		var follows_road = target_kind == "core" and enemy.type not in ["runner", "exploder", "breaker", "saboteur"]
+		if enemy.type == "support" and target_kind == "core" and target_distance > reach and not support_positions.is_empty():
+			var anchor = EnemyBrain.support_anchor(world, pos, target, support_positions)
+			if anchor.distance_squared_to(pos) < 4: destination = pos
+			elif anchor != target:
+				var current_cell = world.cell(pos)
+				var best_anchor = pos.distance_squared_to(anchor)
+				for offset in [Vector2i.LEFT, Vector2i.RIGHT, Vector2i.UP, Vector2i.DOWN]:
+					var candidate = current_cell + offset
+					if world.solid(candidate) or world.map.layers.ground.get(world.cell_key(candidate), {}).get("type", "") != "road": continue
+					var point = world.position(candidate)
+					if point.distance_squared_to(anchor) < best_anchor:
+						best_anchor = point.distance_squared_to(anchor)
+						destination = point
+		if target_distance > reach or not can_see:
+			destination = EnemyBrain.movement_waypoint(enemy, world, pos, destination, target_kind, target_key, delta, follows_road)
 		var direction = destination - pos
 		direction.y = 0
 		if direction.length_squared() > 0.01:
