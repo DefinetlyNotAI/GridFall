@@ -180,6 +180,8 @@ The benchmark logs wave clears, damage, kills, navigation time, simulation phase
 
 The automatic shooter considers a rotating batch of at most 64 enemies when its weapon is ready, then shoots the nearest visible candidate in that batch. This bounds benchmark-only targeting work without limiting the live population. Slow-frame diagnostics and periodic samples report the benchmark's own update time separately from simulation, along with physics collision pairs. Earlier autoplay measurements included a complete enemy scan every physics tick and are not directly comparable to this revised workload.
 
+Benchmark phase data also records peak tower target-search and attack time with the responsible tower type. A 5,000-enemy investigation measured a 165.5 ms Railgun target search versus a 7.24 ms peak Railgun attack. Large blocked crowds can still cause expensive target searches; the experimental deferred-search change was not retained.
+
 Verification performed without test files:
 
 - Godot parser/import checks, rendered menu/editor/inventory/research/settings/combat captures, and Windows export launch.

@@ -2156,6 +2156,7 @@ func update_towers(delta: float) -> void:
 					other.health = minf(other.max_health, other.health + tower.damage)
 			continue
 		if tower.kind not in ["tower", "trap"]: continue
+		var search_start = Time.get_ticks_usec() if autoplay else 0
 		var target = -1
 		var best_score = -1e20
 		var targeting_range = tower.range * (1 + bonus("range") + bonus("tower_range"))
@@ -2178,9 +2179,15 @@ func update_towers(delta: float) -> void:
 				if tower.id != "mortar" and not sight(pos, ep, exclude, true): continue
 				best_score = score
 				target = uid
+		if autoplay:
+			var search_ms = (Time.get_ticks_usec() - search_start) / 1000.0
+			if search_ms > simulation_phases.get("tower_search_peak_ms", 0):
+				simulation_phases.tower_search_peak_ms = search_ms
+				simulation_phases.tower_search_peak = tower.id
 		if target < 0:
 			tower.cooldown = 0.1
 			continue
+		var attack_start = Time.get_ticks_usec() if autoplay else 0
 		var target_pos = enemies[target].node.position + Vector3.UP
 		audio.cue("shot", pos, 0.1)
 		var amount = float(tower.damage) * (1 + bonus("tower_damage"))
@@ -2268,6 +2275,11 @@ func update_towers(delta: float) -> void:
 				if head and head.global_position.distance_squared_to(target_pos) > 0.01:
 					head.set_meta("aim_lock", 0.8)
 					head.look_at(Vector3(target_pos.x, head.global_position.y, target_pos.z))
+		if autoplay:
+			var attack_ms = (Time.get_ticks_usec() - attack_start) / 1000.0
+			if attack_ms > simulation_phases.get("tower_attack_peak_ms", 0):
+				simulation_phases.tower_attack_peak_ms = attack_ms
+				simulation_phases.tower_attack_peak = tower.id
 
 func update_projectiles(delta: float) -> void:
 	for i in range(projectiles.size() - 1, -1, -1):
