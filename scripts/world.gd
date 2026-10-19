@@ -429,7 +429,7 @@ func next_toward(p: Vector2i, target: Vector2i, roads: bool = false) -> Vector2i
 	return best if score <= remaining + 0.000001 else p
 
 func mount_height(p: Vector2i, id: String) -> float:
-	if id not in ["sentry", "rocket", "tesla", "laser", "flame", "rail", "mortar", "cryo"]: return 0.0
+	if id not in ["sentry", "rocket", "tesla", "laser", "flame", "rail", "mortar", "cryo", "interceptor"]: return 0.0
 	var tile: Dictionary = map.layers.structure.get(cell_key(p), {})
 	if tile.get("type", "") not in ["wood", "brick", "concrete_wall", "steel", "reinforced", "glass", "barricade", "permanent"] or tile.get("locked", false): return 0.0
 	return float(tile.get("elevation", 0)) + float(tile.get("height", WALL_DEFS[tile.type].height))

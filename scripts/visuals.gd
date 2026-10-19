@@ -814,6 +814,17 @@ func build_turret_head(head: Node3D, id: String, color: Color) -> void:
 			var muzzle = cylinder(head, Vector3(0, 0.53, -0.73), 0.34, 0.12, steel)
 			muzzle.rotation.x = -0.68
 			box(head, Vector3(0, -0.38, 0.24), Vector3(0.82, 0.2, 0.64), steel)
+		"interceptor":
+			cylinder(head, Vector3(0, 0.62, 0.12), 0.38, 0.12, frame)
+			cylinder(head, Vector3(0, 0.73, 0.12), 0.29, 0.08, color, 0.35)
+			cylinder(head, Vector3(0, 0.86, 0.12), 0.1, 0.22, steel)
+			for side in [-1, 1]:
+				horizontal_barrel(head, Vector3(side * 0.3, 0.02, -0.72), 0.13, 0.72, steel)
+				box(head, Vector3(side * 0.3, 0.02, -1.1), Vector3(0.2, 0.19, 0.1), color, 0.35)
+				box(head, Vector3(side * 0.3, 0.34, -0.38), Vector3(0.08, 0.16, 0.5), frame)
+			var radar_arm = box(head, Vector3(0, 0.96, 0.12), Vector3(0.06, 0.32, 0.06), steel)
+			radar_arm.rotation.z = 0.2
+			cylinder(head, Vector3(0, 1.12, 0.12), 0.32, 0.08, color, 0.3)
 		"cryo":
 			for side in [-1, 1]:
 				horizontal_barrel(head, Vector3(side * 0.36, 0.02, -1.0), 0.1, 1.18, steel)
@@ -1182,6 +1193,21 @@ func enemy_parts(kind: String, color: Color) -> Array:
 			add_visual_part(parts, Vector3(0.22, 1.9, 0.18), Vector3(0.24, 0.07, 0.24), Color("78d8d2"), "cylinder")
 			add_visual_part(parts, Vector3(-0.34, 0.96, -0.25), Vector3(0.18, 0.2, 0.48), joint)
 			add_visual_part(parts, Vector3(-0.34, 0.96, -0.52), Vector3(0.13, 0.12, 0.42), steel, "cylinder")
+		"bombardier":
+			for side in [-1, 1]:
+				add_visual_part(parts, Vector3(side * 0.22, 0.27, 0.02), Vector3(0.23, 0.5, 0.3), joint)
+				add_visual_part(parts, Vector3(side * 0.22, 0.1, -0.08), Vector3(0.3, 0.15, 0.4), steel)
+				add_visual_part(parts, Vector3(side * 0.43, 0.87, 0.02), Vector3(0.2, 0.48, 0.26), plate)
+				add_visual_part(parts, Vector3(side * 0.43, 1.14, 0.05), Vector3(0.24, 0.2, 0.3), steel)
+				add_visual_part(parts, Vector3(side * 0.38, 1.16, 0.36), Vector3(0.22, 0.52, 0.22), Color("bd8050"), "cylinder", Vector3(0.2, 0, side * -0.12))
+				add_visual_part(parts, Vector3(side * 0.38, 1.42, 0.36), Vector3(0.25, 0.08, 0.25), trim, "cylinder")
+			add_visual_part(parts, Vector3(0, 0.82, 0.04), Vector3(0.68, 0.66, 0.52), color)
+			add_visual_part(parts, Vector3(0, 0.96, -0.27), Vector3(0.6, 0.34, 0.1), plate)
+			add_visual_part(parts, Vector3(0, 1.42, -0.02), Vector3(0.42, 0.34, 0.4), steel)
+			add_visual_part(parts, Vector3(0, 1.42, -0.24), Vector3(0.3, 0.08, 0.04), optic)
+			add_visual_part(parts, Vector3(0, 1.12, 0.42), Vector3(0.76, 0.58, 0.3), plate)
+			add_visual_part(parts, Vector3(0, 1.14, 0.59), Vector3(0.58, 0.42, 0.18), Color("d99452"))
+			add_visual_part(parts, Vector3(0, 1.46, 0.57), Vector3(0.48, 0.12, 0.12), trim)
 		"regenerator":
 			for side in [-1, 1]:
 				add_visual_part(parts, Vector3(side * 0.25, 0.26, 0.02), Vector3(0.29, 0.48, 0.34), joint)

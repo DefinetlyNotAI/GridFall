@@ -106,6 +106,7 @@ var benchmark_frame_bins: Dictionary = {}
 var benchmark_frames = 0
 var benchmark_frame_seconds = 0.0
 var benchmark_worst_frame = 0.0
+var benchmark_slow_frames = 0
 var benchmark_weapon = ""
 var benchmark_enemy_pool: Array = []
 var peak_simulation_ms = 0.0
@@ -672,6 +673,7 @@ func parry_projectiles() -> void:
 		var offset = projectile.pos - from
 		if offset.length_squared() > 16 or offset.normalized().dot(forward) < 0.2 or not sight(from, projectile.pos): continue
 		projectile.source = "weapon"
+		projectile.gravity = 0.0
 		projectile.velocity = forward * maxf(35, projectile.velocity.length() * 1.5)
 		projectile.damage *= 2
 		projectile.life = maxf(1.5, projectile.life)
@@ -737,7 +739,7 @@ func explosion(pos: Vector3, damage: float, radius: float, source: String, effec
 		if world.position(world.marker("objective")).distance_to(pos) < radius:
 			damage_core(damage)
 		for key in world.construction.keys():
-			if world.position(world.point(key)).distance_to(pos) < radius:
+			if (structure_position(key) + Vector3.UP).distance_to(pos) < radius:
 				damage_structure(key, damage)
 
 func advance_enemy_dots(uid: int) -> bool:
@@ -980,6 +982,7 @@ func manage_structure(key: String, action: String) -> String:
 		visuals.structure(key)
 		return ""
 	if action == "target":
+		if item.id == "interceptor": return "Interceptor Arrays target hostile projectiles."
 		item.target_mode = (int(item.target_mode) + 1) % TARGET_MODES.size()
 		return ""
 	if action == "repair":
@@ -1992,6 +1995,7 @@ func update_enemies(frame_delta: float) -> void:
 			var attack_target = target_kind + ":" + target_key
 			was_attacking = was_attacking and enemy.get("attack_target", "") == attack_target
 			if not was_attacking and enemy.type in ["breaker", "saboteur"]: enemy.cooldown = maxf(enemy.cooldown, 0.65)
+			if not was_attacking and enemy.type == "bombardier": enemy.cooldown = maxf(enemy.cooldown, float(enemy.warmup))
 			enemy.attack_target = attack_target
 			enemy.ai = "attack"
 			enemy.steering = Vector3.ZERO
@@ -2000,6 +2004,8 @@ func update_enemies(frame_delta: float) -> void:
 				visuals.beam(pos + Vector3.UP, target + Vector3.UP, Color("e7a276"), 0.025, 0.12)
 			if enemy.type == "lancer" and enemy.cooldown > 0 and enemy.cooldown <= 0.6:
 				visuals.beam(pos + Vector3.UP * 1.6, target + Vector3.UP, Color("e5b874"), 0.025, 0.16)
+			if enemy.type == "bombardier" and enemy.cooldown > 0 and enemy.cooldown <= float(enemy.warmup):
+				visuals.beam(pos + Vector3.UP * 1.6, target + Vector3.UP, Color("e5b874"), 0.04, 0.16)
 			if enemy.cooldown <= 0:
 				var interval = maxf(0.3, enemy.interval / minf(1.8, 1 + wave * 0.004))
 				var strikes = 1 + (maxi(0, int(floor(-enemy.cooldown / interval))) if was_attacking else 0)
@@ -2009,6 +2015,11 @@ func update_enemies(frame_delta: float) -> void:
 					explosion(pos + Vector3.UP, enemy.damage, 5, "enemy")
 					damage_enemy(uid, 100000, "weapon")
 					continue
+				elif enemy.type == "bombardier":
+					var origin = pos + Vector3.UP * 1.6
+					var travel = clampf(origin.distance_to(target + Vector3.UP) / 12.0, 0.8, 1.8)
+					var velocity = (target + Vector3.UP - origin) / travel + Vector3.UP * 0.5 * float(enemy.gravity) * travel
+					launch(origin, velocity, attack_damage, float(enemy.splash), "enemy", Color(enemy.color), travel + 0.25, float(enemy.gravity))
 				elif enemy.type in ["spitter", "lancer"] or (enemy.type == "boss" and enemy.health < enemy.max_health * 0.5):
 					launch(pos + Vector3.UP * 1.6, (target + Vector3.UP - pos - Vector3.UP * 1.6).normalized() * (22 if enemy.type == "lancer" else 15), attack_damage, 0 if enemy.type == "lancer" else 1.8, "enemy", Color(enemy.color))
 				elif target_kind == "player":
@@ -2065,6 +2076,44 @@ func update_enemies(frame_delta: float) -> void:
 	simulation_phases.enemy_updates = work.size()
 	simulation_phases.enemy_step_ms = maximum_step * 1000.0
 
+func intercept_projectile(key: String, tower: Dictionary, pos: Vector3) -> void:
+	tower.cooldown = 0.1
+	var radius = float(tower.range) * (1 + bonus("range") + bonus("tower_range"))
+	var closest = radius * radius
+	var target = -1
+	var excluded: Array[RID] = []
+	if visuals.structures.has(key): excluded.append(visuals.structures[key].get_rid())
+	for i in projectiles.size():
+		var projectile: Dictionary = projectiles[i]
+		if projectile.source != "enemy": continue
+		var distance = pos.distance_squared_to(projectile.pos)
+		if distance > closest or not sight(pos, projectile.pos, excluded): continue
+		closest = distance
+		target = i
+	if target < 0:
+		tower.cooldown = 0.0 if projectiles.is_empty() else 0.1
+		return
+	var projectile: Dictionary = projectiles[target]
+	var target_pos: Vector3 = projectile.pos
+	visuals.beam(pos, target_pos, Color(tower.color), 0.055, 0.18)
+	visuals.burst(target_pos, Color(tower.color), 5, 0.45)
+	visuals.release_bolt(projectile.mesh)
+	projectiles.remove_at(target)
+	stats.interceptions = int(stats.get("interceptions", 0)) + 1
+	tower.cooldown = maxf(0.08, float(tower.interval) / (1 + bonus("tower_rate")))
+	if event_name == "Tower interference": tower.cooldown *= 1.7
+	for support_key in world.construction:
+		var support: Dictionary = world.construction[support_key]
+		if support.kind == "support" and world.point(key).distance_to(world.point(support_key)) * 3 <= support.range:
+			tower.cooldown *= 0.85
+			break
+	if visuals.structures.has(key):
+		var head = visuals.structures[key].get_node_or_null("Head")
+		if head and Vector2(target_pos.x, target_pos.z).distance_squared_to(Vector2(head.global_position.x, head.global_position.z)) > 0.01:
+			head.set_meta("aim_lock", 0.8)
+			head.look_at(Vector3(target_pos.x, head.global_position.y, target_pos.z))
+	audio.cue("shot", pos, 0.1)
+
 func update_towers(delta: float) -> void:
 	for key in world.construction.keys():
 		if not world.construction.has(key): continue
@@ -2072,6 +2121,9 @@ func update_towers(delta: float) -> void:
 		tower.cooldown = maxf(0, tower.cooldown - delta)
 		if tower.cooldown > 0: continue
 		var pos = structure_position(key) + Vector3.UP * 2.1
+		if tower.id == "interceptor":
+			intercept_projectile(key, tower, pos)
+			continue
 		if tower.kind == "repair" and repairs_allowed():
 			tower.cooldown = 1
 			for other_key in world.construction:
@@ -2434,7 +2486,7 @@ func valid_run(value: Variant) -> bool:
 	if not extended.get("perks", {}) is Dictionary: return false
 	for key in extended.get("perks", {}):
 		if not profile.ASCENSION_PERKS.has(key) or not profile.numeric(extended.perks[key], 0, profile.ASCENSION_PERKS[key].max_rank): return false
-	for key in ["explosive_damage", "elemental_damage", "close_damage", "core_damage_taken", "loot_collected", "parries"]:
+	for key in ["explosive_damage", "elemental_damage", "close_damage", "core_damage_taken", "loot_collected", "parries", "interceptions"]:
 		if value.stats.has(key) and not profile.numeric(value.stats[key], 0, 1e15): return false
 	for key in ["challenge_weight", "cleared", "reward_wave"]:
 		if value.stats.has(key) and not profile.numeric(value.stats[key], 0, 1e12): return false
@@ -2606,6 +2658,9 @@ func _process(delta: float) -> void:
 	benchmark_frames += 1
 	benchmark_frame_seconds += delta
 	benchmark_worst_frame = maxf(benchmark_worst_frame, delta * 1000.0)
+	if delta > 0.033 and benchmark_slow_frames < 12:
+		benchmark_slow_frames += 1
+		print("BENCHMARK SLOW ", JSON.stringify({"seconds": benchmark_time, "frame_ms": delta * 1000.0, "physics_ms": Performance.get_monitor(Performance.TIME_PHYSICS_PROCESS) * 1000.0, "process_ms": Performance.get_monitor(Performance.TIME_PROCESS) * 1000.0, "simulation_ms": simulation_ms, "phases": simulation_phases, "render": render_times(), "projectiles": projectiles.size(), "enemies": enemies.size()}))
 
 func benchmark_frame_summary() -> Dictionary:
 	var result = {"frames": benchmark_frames, "average_fps": benchmark_frames / maxf(0.001, benchmark_frame_seconds), "worst_ms": benchmark_worst_frame, "warmup_seconds": 2}

@@ -594,6 +594,7 @@ func refresh_planning() -> void:
 		var item = game.world.construction[selected_key]
 		label(planning_detail, item.name + " · L%d" % item.level, 22)
 		label(planning_detail, "HP %d / %d\nDamage %.0f · Range %.1fm\n%s" % [item.health, item.max_health, item.damage, item.range, item.branch], 17)
+		if item.id == "interceptor": label(planning_detail, "Intercepts one visible hostile projectile / %.2fs base cooldown" % item.interval, 16, Color("92abb8"))
 		section(planning_detail, "SERVICE & SPECIALIZATION")
 		var repair_cost = int(ceil((item.max_health - item.health) * 0.15 * (1 - game.bonus("repair_efficiency"))))
 		button(planning_detail, "Repair · %d scrap" % repair_cost, func(): manage("repair"), not game.repairs_allowed() or item.health >= item.max_health or game.scrap < repair_cost)
@@ -604,7 +605,7 @@ func refresh_planning() -> void:
 			var price = int(item.cost * branch.cost * item.level)
 			var branch_name = branch.name if item.kind == "tower" else "Reinforce"
 			button(planning_detail, "%s · %d scrap" % [branch_name, price], func(): manage(branch_id), item.level >= 4 or item.get("branch_id", "") not in ["", branch_id] or game.scrap < price)
-		button(planning_detail, "Target: " + game.TARGET_MODES[int(item.target_mode)], func(): manage("target"), item.kind != "tower")
+		button(planning_detail, "Target: Hostile projectiles" if item.id == "interceptor" else "Target: " + game.TARGET_MODES[int(item.target_mode)], func(): manage("target"), item.kind != "tower" or item.id == "interceptor")
 		section(planning_detail, "PLACEMENT & SALVAGE")
 		button(planning_detail, "Sell · %d scrap" % int(item.invested * 0.65 * maxf(0.2, item.health / item.max_health)), func(): manage("sell"))
 		button(planning_detail, "Demolish", func(): manage("demolish"))
@@ -624,6 +625,7 @@ func refresh_planning() -> void:
 		label(planning_detail, "%d scrap · %d HP · %.0fm range" % [game.build_cost(selected), selected.health, selected.range], 16, Color("92abb8"))
 		if selected.damage > 0:
 			label(planning_detail, "%.0f damage%s" % [selected.damage, " / %.2fs" % selected.interval if selected.interval > 0 else " per trigger"], 16)
+		if build_id == "interceptor": label(planning_detail, "Intercepts one hostile projectile / %.2fs" % selected.interval, 16)
 		if selected.kind == "tower": label(planning_detail, "Ground or solid wall mount", 15, Color("92abb8"))
 		if selected.kind in ["wall", "trap"]: label(planning_detail, "Road placement permitted", 15, Color("92abb8"))
 		if game.scrap < game.build_cost(selected): label(planning_detail, "Need %d more scrap" % (game.build_cost(selected) - game.scrap), 15, Color("e3bb7d"))
@@ -1012,6 +1014,7 @@ func show_results() -> void:
 	section(combat, "COMBAT REPORT")
 	for entry in [["Waves cleared", str(s.get("cleared", game.completed))], ["Enemies defeated", str(s.kills)], ["Bosses defeated", str(s.bosses)], ["Best streak", str(s.streak)], ["Weapon damage", "%.0f" % s.weapon_damage], ["Tower damage", "%.0f" % s.tower_damage], ["Pulse damage", "%.0f" % s.get("ability_damage", 0)], ["Structures built", str(s.built)], ["Scrap earned / spent", "%d / %d" % [s.earned, s.spent]]]:
 		readout(combat, entry[0], entry[1])
+	readout(combat, "Projectiles intercepted", str(s.get("interceptions", 0)))
 	section(combat, "DAMAGE BREAKDOWN")
 	readout(combat, "Total damage", "%.0f" % s.damage)
 	readout(combat, "Explosive damage", "%.0f" % s.get("explosive_damage", 0))
