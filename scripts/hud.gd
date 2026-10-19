@@ -81,13 +81,14 @@ func _draw_status_bars() -> void:
 	var top_size = ui.hud_top.get_combined_minimum_size()
 	var top_origin = _readout_position(ui.hud_top, 240)
 	var core_ratio = float(game.core_health) / maxf(1.0, float(game.max_core))
-	_draw_meter(top_origin + Vector2(8, top_size.y + 7), 224, core_ratio, Color("6bd8c6"), 4.0)
+	if game.mode != "campaign": _draw_meter(top_origin + Vector2(8, top_size.y + 7), 224, core_ratio, Color("6bd8c6"), 4.0)
 
 	var left_size = ui.hud_left.get_combined_minimum_size()
 	var left_origin = _readout_position(ui.hud_left, 220)
 	var health_ratio = float(game.health) / maxf(1.0, float(game.max_health))
 	var health_color = Color("e88773") if health_ratio < 0.25 else (Color("edc27d") if health_ratio < 0.5 else Color("6bd8c6"))
 	_draw_meter(left_origin + Vector2(8, left_size.y + 7), 204, health_ratio, health_color, 4.0)
+	if game.mode == "campaign": return
 	var ability_cooldown = maxf(0.1, 18.0 / (1 + game.bonus("ability")) * (1 - game.bonus("ability_rate")))
 	var ability_ratio = 1.0 - clampf(float(game.ability_timer) / ability_cooldown, 0.0, 1.0)
 	var ability_color = Color("6bd8c6") if game.ability_timer <= 0 else Color("b5a17d")

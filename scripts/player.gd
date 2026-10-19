@@ -197,6 +197,9 @@ func update_grapple(delta: float) -> void:
 	game.visuals.beam(camera.global_position + camera.global_basis.x * 0.2 - Vector3.UP * 0.15, grapple_anchor, Color("6bd8c6"))
 
 func recover_from_fall() -> void:
+	if game.mode == "campaign":
+		game.campaign.retry()
+		return
 	var origin = game.world.marker("player")
 	var destination = origin
 	var found = false
@@ -228,7 +231,7 @@ func unstuck() -> void:
 		return
 	unstuck_ready_at = game.elapsed + 8
 	recover_from_fall()
-	game.ui.notify("Unstuck: returned to clear ground near deployment.")
+	game.ui.notify("Returned to chamber checkpoint." if game.mode == "campaign" else "Unstuck: returned to clear ground near deployment.")
 
 func slam_impact(fall_speed: float) -> void:
 	impact_flash = 1.0
@@ -265,6 +268,7 @@ func restore_movement(value: Dictionary) -> void:
 func _physics_process(delta: float) -> void:
 	if not game.playing() or game.state == "paused" or not is_instance_valid(camera):
 		return
+	if game.mode == "campaign" and game.campaign.finished: return
 	if game.spectator:
 		if game.ui.overlay != "": return
 		var input = Input.get_vector("left", "right", "forward", "back") if not game.autoplay else Vector2.ZERO

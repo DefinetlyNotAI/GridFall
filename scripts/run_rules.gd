@@ -1,6 +1,7 @@
 extends RefCounted
 
 const MODES = {
+	"campaign": {"name": "Campaign", "description": "Twenty movement test chambers with parkour, checkpoints and slow hostile turrets. Separate progression; no defense-run rewards.", "difficulty": 0.0},
 	"frontier": {"name": "Expanding Frontier", "description": "New districts open every 4 cleared waves, adding caches, grapple anchors and approaches. Territory grows to 96 × 96 tiles; waves remain endless.", "difficulty": 1.2},
 	"endless": {"name": "Endless Defense", "description": "Standard endless defense.", "difficulty": 1.0},
 	"seeded": {"name": "Seeded Survival", "description": "Reproducible world and wave seed.", "difficulty": 1.0},

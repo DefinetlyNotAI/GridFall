@@ -38,7 +38,7 @@ var data: Dictionary = {}
 var error = ""
 
 func defaults() -> Dictionary:
-	return {"version": 1, "tp": 0, "research": {}, "awarded": [], "runs": 0, "kills": 0, "best": 0, "bosses": 0, "high_score": 0, "survival_time": 0, "achievements": {}, "ascensions": 0, "cores": 0, "ascension_perks": {}, "secondary_loadout": "pistol", "mutation": "vitality", "settings": {"sensitivity": 0.002, "fov": 82.0, "volume": 0.7, "music": 0.25, "muted": false, "fullscreen": false, "resolution": 0, "vsync": true, "fps": 120, "quality": 1, "hud_scale": 1.0, "crosshair": true, "shake": true, "adaptive": true, "weather": true, "camera_motion": false, "movement_effects": true, "stamina": false, "visual_mode": 0, "advanced_lighting": false, "keys": {}}, "loadout": "rifle"}
+	return {"version": 1, "tp": 0, "research": {}, "awarded": [], "runs": 0, "kills": 0, "best": 0, "bosses": 0, "high_score": 0, "survival_time": 0, "achievements": {}, "ascensions": 0, "cores": 0, "ascension_perks": {}, "secondary_loadout": "pistol", "mutation": "vitality", "settings": {"sensitivity": 0.002, "fov": 82.0, "volume": 0.7, "music": 0.25, "muted": false, "fullscreen": false, "resolution": 0, "vsync": true, "fps": 120, "quality": 1, "hud_scale": 1.0, "crosshair": true, "shake": true, "adaptive": true, "weather": true, "camera_motion": false, "movement_effects": true, "stamina": false, "visual_mode": 0, "advanced_lighting": false, "keys": {}}, "loadout": "rifle", "campaign": {"unlocked": 1, "completed": 0, "stage": 0, "checkpoint": 0, "deaths": 0}}
 
 func valid(value: Variant) -> bool:
 	if not value is Dictionary or value.get("version") != 1:
@@ -61,6 +61,14 @@ func valid(value: Variant) -> bool:
 		if value.has(key) and not numeric(value[key], 0, 1000000): return false
 	if value.has("secondary_loadout") and not value.secondary_loadout is String: return false
 	if value.has("mutation") and value.mutation not in ["vitality", "overclock", "salvage"]: return false
+	if value.has("campaign"):
+		if not value.campaign is Dictionary: return false
+		var campaign_bounds = {"unlocked": [1, 20], "completed": [0, 20], "stage": [0, 19], "checkpoint": [0, 64], "deaths": [0, 1e9]}
+		for key in campaign_bounds:
+			var number: Variant = value.campaign.get(key)
+			if not numeric(number, campaign_bounds[key][0], campaign_bounds[key][1]) or number != int(number): return false
+		if value.campaign.completed > value.campaign.unlocked or value.campaign.stage >= value.campaign.unlocked: return false
+		if value.campaign.has("switches") and (not numeric(value.campaign.switches, 0, 7) or value.campaign.switches != int(value.campaign.switches)): return false
 	if value.has("ascension_perks"):
 		if not value.ascension_perks is Dictionary: return false
 		for key in value.ascension_perks:

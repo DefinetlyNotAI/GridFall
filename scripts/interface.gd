@@ -42,6 +42,7 @@ var settings_section = "Gameplay"
 var hud_refresh = 0.0
 var planning_category = 0
 var planning_schedule = false
+var campaign_selected = -1
 
 func setup(owner_game) -> void:
 	game = owner_game
@@ -322,6 +323,7 @@ func show_menu() -> void:
 	section(left, "OPERATIONS")
 	if game.resume_available: button(left, "Continue saved run", func(): game.load_run())
 	var deploy = button(left, "Deploy new run", show_selection)
+	button(left, "Campaign · 20 chambers", show_campaign_selection)
 	for state in ["normal", "hover", "pressed", "focus"]:
 		var action_style: StyleBoxFlat = root.theme.get_stylebox(state, "Button").duplicate()
 		action_style.bg_color = Color("23463f") if state != "pressed" else Color("17362f")
@@ -356,6 +358,56 @@ func show_menu() -> void:
 	spacer(right)
 	label(body, "HOLD THE CORE. BUILD THE NEXT CHANCE.", 14, Color("91c8c7"))
 
+func show_campaign_selection() -> void:
+	if game.playing(): game.to_menu()
+	notice_time = 0
+	overlay = "campaign_selection"
+	var progress: Dictionary = game.profile.data.campaign
+	if campaign_selected < 0: campaign_selected = int(progress.stage)
+	campaign_selected = clampi(campaign_selected, 0, int(progress.unlocked) - 1)
+	var body = page("RESEARCH TRIALS", "20 movement chambers · checkpoints save automatically · fixed equipment")
+	var content = row(body, 28)
+	content.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	var stages = scroll_column(content, 8)
+	stages.get_parent().size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var stage_grid = GridContainer.new()
+	stage_grid.columns = 2
+	stage_grid.add_theme_constant_override("h_separation", 8)
+	stage_grid.add_theme_constant_override("v_separation", 8)
+	stages.add_child(stage_grid)
+	for index in game.campaign.stage_count():
+		var info: Dictionary = game.campaign.stage_info(index)
+		var status = "COMPLETE" if index < int(progress.completed) else ("LOCKED" if index >= int(progress.unlocked) else "AVAILABLE")
+		var entry = button(stage_grid, "%02d  %s\n%s" % [index + 1, info.name, status], func(): campaign_selected = index; show_campaign_selection(), index >= int(progress.unlocked))
+		entry.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		entry.add_theme_font_size_override("font_size", 15)
+		entry.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		if index == campaign_selected: entry.modulate = Color("7ed9cb")
+	var detail = column(content, 18)
+	detail.custom_minimum_size.x = 320
+	detail.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var selected: Dictionary = game.campaign.stage_info(campaign_selected)
+	section(detail, "CHAMBER %02d / 20" % (campaign_selected + 1))
+	label(detail, selected.name, 28)
+	label(detail, selected.hint, 19, Color("a1b7c1"))
+	readout(detail, "Trials completed", "%d / 20" % progress.completed)
+	readout(detail, "Retries", str(progress.deaths))
+	spacer(detail)
+	label(detail, "Jump, dash, wall-jump and grapple between platforms. Use consoles to release each exit. Sentry beams mark the shot before it fires.", 17, Color("92abb8"))
+	button(detail, "Resume checkpoint" if campaign_selected == int(progress.stage) and int(progress.checkpoint) > 0 else "Enter chamber", func(): game.start_campaign_stage(campaign_selected))
+
+func show_campaign_complete() -> void:
+	notice_time = 0
+	overlay = "campaign_complete"
+	var body = page("TRIALS COMPLETE", "All 20 chambers cleared.", func(): game.to_menu())
+	spacer(body)
+	label(body, "Calibration complete. Operator released.", 32, Color("7ed9cb"))
+	readout(body, "Chambers", "20 / 20")
+	readout(body, "Retries", str(game.profile.data.campaign.deaths))
+	button(body, "Replay a chamber", show_campaign_selection)
+	button(body, "Main menu", func(): game.to_menu())
+	spacer(body)
+
 func show_selection() -> void:
 	overlay = "selection"
 	var body = page("DEPLOYMENT", "Fixed layouts · construction during Preparation · permanent research applies to standard runs")
@@ -374,6 +426,7 @@ func show_selection() -> void:
 	section(settings, "OPERATION RULES")
 	var mode_picker = OptionButton.new()
 	var mode_ids = game.Rules.MODES.keys()
+	mode_ids.erase("campaign")
 	for id in mode_ids: mode_picker.add_item(game.Rules.MODES[id].name)
 	mode_picker.select(mode_ids.find("endless"))
 	settings.add_child(mode_picker)
@@ -564,7 +617,7 @@ func refresh_planning() -> void:
 		label(planning_detail, "%d scrap · %d HP · %.0fm range" % [game.build_cost(selected), selected.health, selected.range], 16, Color("92abb8"))
 		if selected.damage > 0:
 			label(planning_detail, "%.0f damage%s" % [selected.damage, " / %.2fs" % selected.interval if selected.interval > 0 else " per trigger"], 16)
-		if build_id in ["sentry", "laser", "cryo"]: label(planning_detail, "Ground or solid wall mount", 15, Color("92abb8"))
+		if selected.kind == "tower": label(planning_detail, "Ground or solid wall mount", 15, Color("92abb8"))
 		if selected.kind in ["wall", "trap"]: label(planning_detail, "Road placement permitted", 15, Color("92abb8"))
 		if game.scrap < game.build_cost(selected): label(planning_detail, "Need %d more scrap" % (game.build_cost(selected) - game.scrap), 15, Color("e3bb7d"))
 		for id in game.catalog.structures:
@@ -878,6 +931,22 @@ func show_pause() -> void:
 	spacer(body)
 	label(body, "PAUSED", 38)
 	button(body, "Resume", func(): game.state = game.previous_state; close_overlay())
+	if game.mode == "campaign":
+		button(body, "Retry checkpoint", func(): game.state = game.previous_state; close_overlay(); game.campaign.retry())
+		button(body, "Settings", show_settings)
+		button(body, "Chamber selection", show_campaign_selection)
+		spacer(body)
+		var info: Dictionary = game.campaign.stage_info()
+		var detail = column(layout, 18)
+		detail.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		spacer(detail)
+		section(detail, "CHAMBER %02d / 20" % (game.campaign.stage_index + 1))
+		label(detail, info.name, 28)
+		label(detail, info.hint, 19)
+		readout(detail, "Checkpoint", str(game.campaign.checkpoint_index))
+		label(detail, "Campaign progress saves automatically and keeps your defense checkpoint separate.", 17, Color("92abb8"))
+		spacer(detail)
+		return
 	button(body, "Save run", func():
 		if game.save_run(): notify("Run saved."),
 		game.previous_state not in ["preparation", "wave"] or not game.eligible)
@@ -1187,6 +1256,13 @@ func _process(delta: float) -> void:
 			return
 		boss_label.visible = false
 		hud.boss_ratio = -1
+		if game.mode == "campaign":
+			var info: Dictionary = game.campaign.stage_info()
+			hud_top.text = "CHAMBER %02d / 20\n%s" % [game.campaign.stage_index + 1, info.name.to_upper()]
+			hud_left.text = "HEALTH  %d / %d\nCHECKPOINT  %d" % [game.health, game.max_health, game.campaign.checkpoint_index]
+			hud_right.text = "CONSOLES  %d / %d\nRETRIES  %d" % [game.campaign._activated_switches.size(), info.switches, game.profile.data.campaign.deaths]
+			hints.text = "[%s] JUMP / WALL JUMP · [%s] DASH · [%s] SLIDE / SLAM · [%s] GRAPPLE\n[%s] CONSOLE · [%s] RETRY CHECKPOINT · [%s] PAUSE" % [key_name("jump"), key_name("sprint"), key_name("crouch"), key_name("grapple"), key_name("interact"), key_name("unstuck"), key_name("pause")]
+			return
 		for uid in game.enemy_index.of_type("boss"):
 			var enemy = game.enemies[uid]
 			if enemy.type == "boss":

@@ -8,7 +8,9 @@ const Interface = preload("res://scripts/interface.gd")
 const Sound = preload("res://scripts/audio.gd")
 const Rules = preload("res://scripts/run_rules.gd")
 const CombatSave = preload("res://scripts/combat_save.gd")
+const Campaign = preload("res://scripts/campaign.gd")
 const EnemyBrain = preload("res://scripts/enemy_brain.gd")
+var campaign = Campaign.new()
 const EnemyIndex = preload("res://scripts/enemy_index.gd")
 var enemy_index = EnemyIndex.new()
 var wounded_index = EnemyIndex.new()
@@ -126,6 +128,8 @@ func _ready() -> void:
 	ui = Interface.new()
 	add_child(ui)
 	ui.setup(self)
+	add_child(campaign)
+	campaign.setup(self)
 	apply_settings()
 	resume_available = read_run_checkpoint() != null
 	world.load_map(world.preset())
@@ -223,6 +227,7 @@ func scarce_ammo() -> bool:
 	return mode == "scavenger" or challenge("scarce_ammo")
 
 func placement(point: Vector2i, id: String = "") -> String:
+	if mode == "campaign" and playing(): return "Campaign chambers do not allow construction."
 	if spectator: return "Spectator mode has no construction."
 	var reason = world.placement(point, id if id != "" else (ui.build_id if is_instance_valid(ui) else ""))
 	if reason != "": return reason
@@ -249,6 +254,15 @@ func start_debug_world() -> void:
 	ui.close_overlay()
 	ui.notify("Tile gallery · Spectator · WASD fly · Space up · Ctrl down · Shift faster · Esc exit")
 
+func start_campaign_stage(index: int = 0) -> void:
+	var progress: Dictionary = profile.data.campaign
+	if index < 0 or index >= campaign.stage_count() or index >= int(progress.unlocked):
+		ui.notify("Complete the previous chamber to unlock this stage.")
+		return
+	if eligible and playing() and not save_run(): return
+	state = "menu"
+	start_run("campaign", campaign.stage_map(index))
+
 func ascend() -> String:
 	if state != "menu" or read_run_checkpoint() != null: return "Finish or abandon your saved run before ascending."
 	return profile.ascend(catalog.technologies)
@@ -260,10 +274,13 @@ func respec() -> String:
 func start_run(run_mode: String = "endless", custom: Dictionary = {}, restoring: bool = false) -> void:
 	if playing():
 		return
+	if run_mode == "campaign" and custom.is_empty():
+		start_campaign_stage(int(profile.data.campaign.stage))
+		return
 	if not Rules.MODES.has(run_mode):
 		ui.notify("Unknown game mode.")
 		return
-	if not custom.is_empty() and run_mode != "sandbox":
+	if not custom.is_empty() and run_mode not in ["sandbox", "campaign"]:
 		ui.notify("Custom worlds can only be played in Sandbox.")
 		return
 	if run_mode == "siege" and profile.data.best < 20 and not restoring:
@@ -271,11 +288,11 @@ func start_run(run_mode: String = "endless", custom: Dictionary = {}, restoring:
 		return
 	mode = run_mode
 	active_challenges = challenge_rules.duplicate() if mode == "challenge" else {}
-	eligible = run_mode != "sandbox" and custom.is_empty()
+	eligible = run_mode not in ["sandbox", "campaign"] and custom.is_empty()
 	if mode == "daily": seed_value = Rules.daily_seed()
 	var world_index = absi(seed_value) % World.LEVEL_NAMES.size() if mode in ["seeded", "daily"] else selected_map
 	var value = custom if not custom.is_empty() else world.preset(world_index, seed_value)
-	var issues = world.validate(value)
+	var issues = world.validate(value, mode != "campaign")
 	if not issues.is_empty():
 		ui.notify("Map rejected: " + "; ".join(issues))
 		return
@@ -351,6 +368,17 @@ func start_run(run_mode: String = "endless", custom: Dictionary = {}, restoring:
 		for id in active_challenges:
 			if active_challenges[id]: stats.difficulty += Rules.CHALLENGES[id].weight
 		stats.challenge_weight = stats.difficulty - 1
+	if mode == "campaign":
+		bonuses.clear()
+		run_perks.clear()
+		run_research.clear()
+		max_health = 100
+		health = 100
+		shield = 0
+		core_shield = 0
+		scrap = 0
+		consumables = {"medkit": 0, "grenade": 0}
+		weapons = [{"id": "", "rarity": 0, "roll": 1.0, "ammo": 0, "reserve": 0, "attachments": {}, "mods": []}, {"id": "", "rarity": 0, "roll": 1.0, "ammo": 0, "reserve": 0, "attachments": {}, "mods": []}]
 	visuals.rebuild()
 	player = Player.new()
 	add_child(player)
@@ -360,8 +388,12 @@ func start_run(run_mode: String = "endless", custom: Dictionary = {}, restoring:
 	ui.close_overlay()
 	ui.notify("Preparation — build defenses [%s], then begin wave [%s]." % [ui.key_name("planning"), ui.key_name("next_wave")])
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE if autoplay else Input.MOUSE_MODE_CAPTURED
+	if mode == "campaign":
+		state = "wave"
+		campaign.start(int(value.get("campaign_stage", 0)))
 
 func clear_run() -> void:
+	if is_instance_valid(campaign): campaign.clear()
 	spectator = false
 	enemy_index.clear()
 	wounded_index.clear()
@@ -800,7 +832,8 @@ func damage_player(amount: float, status_damage: bool = false) -> void:
 	ui.hurt_flash = 0.3
 	audio.cue("hurt", player.position, 0.6)
 	if health <= 0:
-		defeat("Player defeated")
+		if mode == "campaign": campaign.retry()
+		else: defeat("Player defeated")
 
 func damage_core(amount: float) -> void:
 	if state != "wave":
@@ -997,7 +1030,7 @@ func refill_spawns() -> void:
 	if remaining == 0: spawn_reserve.clear()
 
 func start_wave() -> bool:
-	if spectator or state != "preparation" or reward_pending:
+	if mode == "campaign" or spectator or state != "preparation" or reward_pending:
 		return false
 	var checkpoint_ok = save_run() if eligible else true
 	wave += 1
@@ -1283,6 +1316,7 @@ func consume(id: String) -> void:
 	audio.cue("build")
 
 func ability() -> void:
+	if mode == "campaign": return
 	if state != "wave" or ability_timer > 0:
 		return
 	ability_timer = 18 / (1 + bonus("ability")) * (1 - bonus("ability_rate"))
@@ -1309,6 +1343,9 @@ func restoration() -> void:
 
 func interact() -> void:
 	if not playing() or state == "paused":
+		return
+	if mode == "campaign":
+		campaign.interact()
 		return
 	var nearest = -1
 	var distance = 3.5
@@ -1541,6 +1578,9 @@ func _unhandled_input(event: InputEvent) -> void:
 		ui.debug_visible = not ui.debug_visible
 		RenderingServer.viewport_set_measure_render_time(get_viewport().get_viewport_rid(), ui.debug_visible or autoplay)
 	if event.is_action_pressed("pause"):
+		if mode == "campaign" and campaign.finished:
+			ui.show_campaign_complete()
+			return
 		if state == "paused":
 			state = previous_state
 			ui.close_overlay()
@@ -1556,6 +1596,7 @@ func _unhandled_input(event: InputEvent) -> void:
 			ui.show_menu()
 	if playing() and state != "paused" and not spectator:
 		if event.is_action_pressed("unstuck") and ui.overlay == "": player.unstuck()
+		if mode == "campaign": return
 		if event.is_action_pressed("inventory") and not reward_pending:
 			if ui.overlay == "inventory": ui.close_overlay()
 			else: ui.show_inventory()
@@ -1574,6 +1615,10 @@ func _physics_process(delta: float) -> void:
 	var start = Time.get_ticks_usec()
 	elapsed += delta
 	if spectator: return
+	if mode == "campaign":
+		hurt_timer = maxf(0, hurt_timer - delta)
+		campaign.update(delta)
+		return
 	fire_timer = maxf(0, fire_timer - delta)
 	ability_timer = maxf(0, ability_timer - delta)
 	restoration_timer = maxf(0, restoration_timer - delta)
