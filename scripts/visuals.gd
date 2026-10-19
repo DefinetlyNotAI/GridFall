@@ -678,6 +678,8 @@ func structure(key: String) -> void:
 	geometry.add_child(body)
 	structures[key] = body
 	if data.kind == "wall":
+		# Barricades stop actors and hostile fire, but let friendly towers fire through.
+		body.collision_layer = 8
 		collision(body, Vector3(2.8, 2.2, 2.8), Vector3(0, 1.1, 0))
 	elif data.kind != "trap":
 		collision(body, Vector3(1.6, 1.9, 1.6), Vector3(0, 0.95, 0))
@@ -1055,7 +1057,7 @@ func build_tile_model(parent: Node3D, id: String) -> void:
 func enemy(data: Dictionary) -> CharacterBody3D:
 	var body = CharacterBody3D.new()
 	body.collision_layer = 2
-	body.collision_mask = 1
+	body.collision_mask = 9
 	body.set_meta("enemy", data.uid)
 	add_child(body)
 	var scale_value = 1.8 if data.type == "boss" else (1.25 if data.type == "tank" else 1.0)

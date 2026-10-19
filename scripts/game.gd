@@ -558,12 +558,13 @@ func reload_weapon() -> void:
 	reload_timer = weapon_stats(item).reload
 	audio.cue("reload")
 
-func ray(from: Vector3, to: Vector3, mask: int = 3, exclude: Array[RID] = []) -> Dictionary:
+func ray(from: Vector3, to: Vector3, mask: int = 3, exclude: Array[RID] = [], through_barricades: bool = false) -> Dictionary:
+	if mask & 1 and not through_barricades: mask |= 8
 	var query = PhysicsRayQueryParameters3D.create(from, to, mask, exclude)
 	return get_world_3d().direct_space_state.intersect_ray(query)
 
-func sight(from: Vector3, to: Vector3, exclude: Array[RID] = []) -> bool:
-	return ray(from, to, 1, exclude).is_empty()
+func sight(from: Vector3, to: Vector3, exclude: Array[RID] = [], through_barricades: bool = false) -> bool:
+	return ray(from, to, 1, exclude, through_barricades).is_empty()
 
 func fire(direction: Vector3 = Vector3.ZERO) -> void:
 	if state not in ["preparation", "wave"] or fire_timer > 0 or reload_timer > 0:
@@ -731,7 +732,7 @@ func explosion(pos: Vector3, damage: float, radius: float, source: String, effec
 			var enemy = enemies[uid]
 			var center = enemy.node.position + Vector3.UP * (1.8 if enemy.type == "boss" else 1.0)
 			var distance = center.distance_to(pos)
-			if distance <= radius and sight(pos + Vector3.UP * 0.2, center):
+			if distance <= radius and sight(pos + Vector3.UP * 0.2, center, [], source == "tower"):
 				damage_enemy(uid, damage * (1 - 0.5 * distance / radius), source, pos, blast_effects)
 	else:
 		if player.position.distance_to(pos) < radius:
@@ -2106,7 +2107,7 @@ func intercept_projectile(key: String, tower: Dictionary, pos: Vector3) -> void:
 		var projectile: Dictionary = projectiles[i]
 		if projectile.source != "enemy": continue
 		var distance = pos.distance_squared_to(projectile.pos)
-		if distance > closest or not sight(pos, projectile.pos, excluded): continue
+		if distance > closest or not sight(pos, projectile.pos, excluded, true): continue
 		closest = distance
 		target = i
 	if target < 0:
@@ -2170,7 +2171,7 @@ func update_towers(delta: float) -> void:
 				5: score = -enemy.health
 				6: score = enemy.damage * enemy.speed
 			if score > best_score:
-				if tower.id != "mortar" and not sight(pos, ep, exclude): continue
+				if tower.id != "mortar" and not sight(pos, ep, exclude, true): continue
 				best_score = score
 				target = uid
 		if target < 0: continue
@@ -2217,7 +2218,7 @@ func update_towers(delta: float) -> void:
 				var distance = 5.0
 				for uid in enemy_index.nearby(previous, 5):
 					var ep = enemies[uid].node.position + Vector3.UP
-					if uid not in struck and ep.distance_to(previous) < distance and sight(previous, ep):
+					if uid not in struck and ep.distance_to(previous) < distance and sight(previous, ep, [], true):
 						closest = uid
 						distance = ep.distance_to(previous)
 				if closest < 0: break
@@ -2239,7 +2240,7 @@ func update_towers(delta: float) -> void:
 			damage_enemy(target, amount, "tower", pos)
 		if tower.get("branch_id", "") == "resonant":
 			for uid in enemy_index.nearby(target_pos, 6):
-				if uid != target and (enemies[uid].node.position + Vector3.UP).distance_to(target_pos) < 6 and sight(target_pos, enemies[uid].node.position + Vector3.UP):
+				if uid != target and (enemies[uid].node.position + Vector3.UP).distance_to(target_pos) < 6 and sight(target_pos, enemies[uid].node.position + Vector3.UP, [], true):
 					visuals.beam(target_pos, enemies[uid].node.position + Vector3.UP, Color("cb9df1"))
 					damage_enemy(uid, amount * 0.35, "tower", pos)
 					break
@@ -2249,7 +2250,7 @@ func update_towers(delta: float) -> void:
 				if uid == target: continue
 				var diff = enemies[uid].node.position + Vector3.UP - pos
 				var along = diff.dot(aim)
-				if along > 0 and along < tower.range and (diff - aim * along).length() < 0.8 and sight(pos, pos + diff, [visuals.structures[key].get_rid()]):
+				if along > 0 and along < tower.range and (diff - aim * along).length() < 0.8 and sight(pos, pos + diff, [visuals.structures[key].get_rid()], true):
 					damage_enemy(uid, amount * 0.65, "tower", pos)
 		if tower.id == "mine":
 			world.construction.erase(key)
@@ -2267,7 +2268,7 @@ func update_projectiles(delta: float) -> void:
 		var p = projectiles[i]
 		var end = p.pos + p.velocity * delta - Vector3.UP * 0.5 * p.gravity * delta * delta
 		p.velocity.y -= p.gravity * delta
-		var hit = ray(p.pos, end, 5 if p.source == "enemy" else 3)
+		var hit = ray(p.pos, end, 5 if p.source == "enemy" else 3, [], p.source == "tower")
 		p.life -= delta
 		if not hit.is_empty() or p.life <= 0:
 			var impact = hit.position if not hit.is_empty() else end

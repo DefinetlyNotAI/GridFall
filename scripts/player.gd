@@ -54,7 +54,7 @@ const WEAPON_MODELS = {
 func setup(owner_game) -> void:
 	game = owner_game
 	collision_layer = 4
-	collision_mask = 1
+	collision_mask = 9
 	var shape = CollisionShape3D.new()
 	var capsule = CapsuleShape3D.new()
 	capsule.radius = 0.35
