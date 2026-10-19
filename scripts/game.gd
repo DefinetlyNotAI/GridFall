@@ -107,6 +107,8 @@ var benchmark_frames = 0
 var benchmark_frame_seconds = 0.0
 var benchmark_worst_frame = 0.0
 var benchmark_slow_frames = 0
+var benchmark_update_ms = 0.0
+var benchmark_aim_cursor = 0
 var benchmark_weapon = ""
 var benchmark_enemy_pool: Array = []
 var peak_simulation_ms = 0.0
@@ -1780,7 +1782,9 @@ func _unhandled_input(event: InputEvent) -> void:
 
 func _physics_process(delta: float) -> void:
 	if autoplay:
+		var benchmark_start = Time.get_ticks_usec()
 		benchmark_update(delta)
+		benchmark_update_ms = (Time.get_ticks_usec() - benchmark_start) / 1000.0
 	if state not in ["preparation", "wave"]:
 		return
 	var start = Time.get_ticks_usec()
@@ -2682,7 +2686,7 @@ func _process(delta: float) -> void:
 	benchmark_worst_frame = maxf(benchmark_worst_frame, delta * 1000.0)
 	if delta > 0.033 and benchmark_slow_frames < 12:
 		benchmark_slow_frames += 1
-		print("BENCHMARK SLOW ", JSON.stringify({"seconds": benchmark_time, "frame_ms": delta * 1000.0, "physics_ms": Performance.get_monitor(Performance.TIME_PHYSICS_PROCESS) * 1000.0, "process_ms": Performance.get_monitor(Performance.TIME_PROCESS) * 1000.0, "simulation_ms": simulation_ms, "phases": simulation_phases, "render": render_times(), "projectiles": projectiles.size(), "enemies": enemies.size()}))
+		print("BENCHMARK SLOW ", JSON.stringify({"seconds": benchmark_time, "frame_ms": delta * 1000.0, "physics_ms": Performance.get_monitor(Performance.TIME_PHYSICS_PROCESS) * 1000.0, "process_ms": Performance.get_monitor(Performance.TIME_PROCESS) * 1000.0, "benchmark_ms": benchmark_update_ms, "collision_pairs": Performance.get_monitor(Performance.PHYSICS_3D_COLLISION_PAIRS), "simulation_ms": simulation_ms, "phases": simulation_phases, "render": render_times(), "projectiles": projectiles.size(), "enemies": enemies.size()}))
 
 func benchmark_frame_summary() -> Dictionary:
 	var result = {"frames": benchmark_frames, "average_fps": benchmark_frames / maxf(0.001, benchmark_frame_seconds), "worst_ms": benchmark_worst_frame, "warmup_seconds": 2}
@@ -2717,6 +2721,8 @@ func benchmark_update(delta: float) -> void:
 		benchmark_stats[-1].render = render_times()
 		benchmark_stats[-1].phases = simulation_phases.duplicate()
 		benchmark_stats[-1].physics_ms = Performance.get_monitor(Performance.TIME_PHYSICS_PROCESS) * 1000.0
+		benchmark_stats[-1].benchmark_ms = benchmark_update_ms
+		benchmark_stats[-1].collision_pairs = Performance.get_monitor(Performance.PHYSICS_3D_COLLISION_PAIRS)
 		benchmark_stats[-1].queued = queued_enemies()
 		benchmark_stats[-1].spawn_buffer = spawn_queue.size()
 	if benchmark_content and state == "wave":
@@ -2745,16 +2751,21 @@ func benchmark_update(delta: float) -> void:
 			print("BENCHMARK wave cleared=", completed, " core=", core_health, " kills=", stats.kills, " evolved=", world.applied)
 		start_wave()
 	elif state == "wave":
-		var nearest = -1
-		var distance = 40.0
-		for uid in enemies:
-			var target = enemies[uid].node.position + Vector3.UP * 1.3
-			var d = player.camera.global_position.distance_to(target)
-			if d < distance and sight(player.camera.global_position, target):
-				distance = d
-				nearest = uid
-		if nearest >= 0:
-			fire(enemies[nearest].node.position + Vector3.UP * 1.3 - player.camera.global_position)
+		if fire_timer <= 0 and reload_timer <= 0:
+			var nearest = -1
+			var distance = 40.0
+			var population = enemy_index.ids.size()
+			for i in mini(64, population):
+				benchmark_aim_cursor = posmod(benchmark_aim_cursor, population)
+				var uid = enemy_index.ids[benchmark_aim_cursor]
+				benchmark_aim_cursor += 1
+				var target = enemies[uid].node.position + Vector3.UP * 1.3
+				var d = player.camera.global_position.distance_to(target)
+				if d < distance and sight(player.camera.global_position, target):
+					distance = d
+					nearest = uid
+			if nearest >= 0:
+				fire(enemies[nearest].node.position + Vector3.UP * 1.3 - player.camera.global_position)
 		if health < 40: consume("medkit")
 
 func capture_screen(target: String) -> void:
