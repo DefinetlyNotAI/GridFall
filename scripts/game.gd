@@ -2174,7 +2174,9 @@ func update_towers(delta: float) -> void:
 				if tower.id != "mortar" and not sight(pos, ep, exclude, true): continue
 				best_score = score
 				target = uid
-		if target < 0: continue
+		if target < 0:
+			tower.cooldown = 0.1
+			continue
 		var target_pos = enemies[target].node.position + Vector3.UP
 		audio.cue("shot", pos, 0.1)
 		var amount = float(tower.damage) * (1 + bonus("tower_damage"))
